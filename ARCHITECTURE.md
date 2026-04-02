@@ -27,9 +27,6 @@ listPicking ──► filtering ──► comparing ──► results
 
 ```
 PairwiseReminders/
-├── project.yml                   XcodeGen config: target settings, bundle ID, Info.plist
-│                                 properties. Edit here; regenerate .xcodeproj with xcodegen.
-│
 ├── PairwiseReminders/
 │   └── Info.plist                Generated iOS metadata: display name ("Retinder"),
 │                                 Reminders usage description, orientations, etc.
