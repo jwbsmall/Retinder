@@ -26,6 +26,7 @@
 
 /* Begin PBXFileReference section */
 		AA0000000000000000000016 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA0000000000000000000036 /* PairwiseReminders.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PairwiseReminders.entitlements; sourceTree = "<group>"; };
 		AA0000000000000000000017 /* PairwiseRemindersApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairwiseRemindersApp.swift; sourceTree = "<group>"; };
 		AA0000000000000000000018 /* ReminderItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderItem.swift; sourceTree = "<group>"; };
 		AA0000000000000000000019 /* PairwiseSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairwiseSession.swift; sourceTree = "<group>"; };
@@ -70,6 +71,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0000000000000000000016 /* Info.plist */,
+				AA0000000000000000000036 /* PairwiseReminders.entitlements */,
 			);
 			path = PairwiseReminders;
 			sourceTree = "<group>";
@@ -361,6 +363,7 @@
 		AA0000000000000000000007 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = PairwiseReminders/PairwiseReminders.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -382,6 +385,7 @@
 		AA0000000000000000000008 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = PairwiseReminders/PairwiseReminders.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;

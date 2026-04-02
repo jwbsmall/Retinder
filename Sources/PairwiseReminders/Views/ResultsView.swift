@@ -12,6 +12,8 @@ struct ResultsView: View {
     @State private var showSuccessBanner = false
     @State private var isApplying = false
     @State private var didCopy = false
+    @State private var editingItem: ReminderItem?
+    @Environment(\.editMode) private var editMode
 
     var body: some View {
         NavigationStack {
@@ -42,6 +44,15 @@ struct ResultsView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
+            .sheet(item: $editingItem, onDismiss: {
+                // Force SwiftUI to re-read computed properties after ekReminder mutation
+                let items = session.rankedItems
+                session.rankedItems = items
+            }) { item in
+                ReminderEditSheet(item: item)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
         }
         .onAppear {
             // Auto-save ranking as soon as results appear, even if user never taps Apply.
@@ -71,6 +82,11 @@ struct ResultsView: View {
                     rank: (session.rankedItems.firstIndex(of: item) ?? 0) + 1,
                     total: session.rankedItems.count
                 )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard editMode?.wrappedValue != .active else { return }
+                    editingItem = item
+                }
             }
             .onMove(perform: moveItems)
         }
@@ -152,6 +168,13 @@ struct ResultsView: View {
                         dueDate: options.resolvedDueDate
                     )
                 }
+                if options.scheduleAlarms {
+                    if #available(iOS 26, *) {
+                        #if canImport(AlarmKit)
+                        try await remindersManager.applyAlarms(session.rankedItems, count: options.alarmCount)
+                        #endif
+                    }
+                }
                 session.didApply = true
                 withAnimation(.spring(response: 0.4)) { showSuccessBanner = true }
             } catch {
@@ -187,6 +210,9 @@ struct ApplyOptions {
     var dueDateCount: Int = 3
     var dueTarget: DueTarget = .today
     var customDate: Date = .now
+
+    var scheduleAlarms: Bool = false
+    var alarmCount: Int = 3
 
     var resolvedDueDate: Date {
         let cal = Calendar.current
@@ -276,6 +302,27 @@ private struct ApplySheet: View {
                         Text("Sets the due date on the top \(options.dueDateCount) item\(options.dueDateCount == 1 ? "" : "s"). Does not set a time or notification.")
                     }
                 }
+
+                // Alarms
+                if #available(iOS 26, *) {
+                    Section {
+                        Toggle("Set urgent alerts", isOn: $options.scheduleAlarms)
+
+                        if options.scheduleAlarms {
+                            Stepper(
+                                "Top \(options.alarmCount) item\(options.alarmCount == 1 ? "" : "s")",
+                                value: $options.alarmCount,
+                                in: 1...max(1, itemCount)
+                            )
+                        }
+                    } header: {
+                        Text("Alarms")
+                    } footer: {
+                        if options.scheduleAlarms {
+                            Text("Schedules an alarm for the top \(options.alarmCount) item\(options.alarmCount == 1 ? "" : "s") that fires even when Do Not Disturb is on.")
+                        }
+                    }
+                }
             }
             .navigationTitle("Apply to Reminders")
             .navigationBarTitleDisplayMode(.inline)
@@ -286,9 +333,99 @@ private struct ApplySheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") { onApply(options) }
                         .bold()
-                        .disabled(isApplying || (!options.applyPriorities && !options.applyDueDates))
+                        .disabled(isApplying || (!options.applyPriorities && !options.applyDueDates && !options.scheduleAlarms))
                 }
             }
+        }
+    }
+}
+
+// MARK: - Reminder Edit Sheet
+
+private struct ReminderEditSheet: View {
+
+    @EnvironmentObject private var remindersManager: RemindersManager
+    @Environment(\.dismiss) private var dismiss
+
+    let item: ReminderItem
+
+    @State private var title: String
+    @State private var notes: String
+    @State private var selectedCalendarID: String
+    @State private var hasDueDate: Bool
+    @State private var dueDate: Date
+    @State private var saveError: String?
+
+    init(item: ReminderItem) {
+        self.item = item
+        _title = State(initialValue: item.title)
+        _notes = State(initialValue: item.notes ?? "")
+        _selectedCalendarID = State(initialValue: item.ekReminder.calendar?.calendarIdentifier ?? "")
+        _hasDueDate = State(initialValue: item.dueDate != nil)
+        _dueDate = State(initialValue: item.dueDate ?? Date())
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Title") {
+                    TextField("Title", text: $title)
+                }
+
+                Section("Notes") {
+                    TextField("Notes", text: $notes, axis: .vertical)
+                        .lineLimit(3...6)
+                }
+
+                Section("List") {
+                    Picker("List", selection: $selectedCalendarID) {
+                        ForEach(remindersManager.lists, id: \.calendarIdentifier) { list in
+                            Text(list.title).tag(list.calendarIdentifier)
+                        }
+                    }
+                }
+
+                Section {
+                    Toggle("Due Date", isOn: $hasDueDate)
+                    if hasDueDate {
+                        DatePicker("Date", selection: $dueDate,
+                                   displayedComponents: [.date, .hourAndMinute])
+                    }
+                }
+
+                if let error = saveError {
+                    Section {
+                        Text(error).foregroundStyle(.red).font(.caption)
+                    }
+                }
+            }
+            .navigationTitle("Edit Reminder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .bold()
+                        .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func save() {
+        do {
+            try remindersManager.updateReminder(
+                item,
+                title: title.trimmingCharacters(in: .whitespaces),
+                notes: notes.isEmpty ? nil : notes,
+                calendarID: selectedCalendarID,
+                dueDate: hasDueDate ? dueDate : nil
+            )
+            dismiss()
+        } catch {
+            saveError = error.localizedDescription
         }
     }
 }

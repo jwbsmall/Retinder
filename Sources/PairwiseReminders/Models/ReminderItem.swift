@@ -5,10 +5,12 @@ import EventKit
 struct ReminderItem: Identifiable, Equatable {
     let id: String              // EKReminder.calendarItemIdentifier
     let ekReminder: EKReminder  // Reference type — mutations are visible everywhere
-    let title: String
-    let notes: String?
-    let dueDate: Date?
-    let listName: String
+
+    // Computed from ekReminder so edits are reflected without reconstructing the struct.
+    var title: String    { ekReminder.title ?? "Untitled" }
+    var notes: String?   { ekReminder.notes }
+    var dueDate: Date?   { ekReminder.dueDateComponents?.date }
+    var listName: String { ekReminder.calendar?.title ?? "Unknown" }
 
     /// Claude's one-line reasoning for why this item matters.
     var aiReasoning: String?
@@ -19,10 +21,6 @@ struct ReminderItem: Identifiable, Equatable {
     init(from ekReminder: EKReminder) {
         self.id = ekReminder.calendarItemIdentifier
         self.ekReminder = ekReminder
-        self.title = ekReminder.title ?? "Untitled"
-        self.notes = ekReminder.notes
-        self.dueDate = ekReminder.dueDateComponents?.date
-        self.listName = ekReminder.calendar?.title ?? "Unknown"
     }
 
     static func == (lhs: ReminderItem, rhs: ReminderItem) -> Bool {
