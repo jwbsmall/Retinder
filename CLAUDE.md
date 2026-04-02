@@ -186,6 +186,15 @@ The API key is auto-filled on the onboarding screen if the pasteboard contains a
 
 ---
 
+## Git & GitHub Workflow
+
+- Work on feature branches, never directly on `main`.
+- After pushing a completed batch of work to a feature branch, **always create a GitHub PR** using `mcp__github__create_pull_request` — unless one already exists for that branch, or the user explicitly asks not to.
+- Check for an existing open PR with `mcp__github__list_pull_requests` before creating a new one.
+- PR title should be concise (≤70 chars). Body should bullet the changes and include a test plan checklist.
+
+---
+
 ## What Not to Do
 
 - **Do not add any third-party dependencies** — no SPM packages, no CocoaPods, no external code of any kind.
