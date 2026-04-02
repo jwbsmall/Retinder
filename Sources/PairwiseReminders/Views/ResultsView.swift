@@ -36,15 +36,16 @@ struct ResultsView: View {
             .navigationTitle("Your Priorities")
             .navigationBarTitleDisplayMode(.large)
             .sheet(isPresented: $showApplySheet) {
-                ApplySheet(
-                    itemCount: session.rankedItems.count,
-                    isApplying: isApplying
-                ) { mode, urgentCount in
-                    applyPriorities(mode: mode, urgentCount: urgentCount)
+                ApplySheet(itemCount: session.rankedItems.count, isApplying: isApplying) { options in
+                    applyOptions(options)
                 }
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
+        }
+        .onAppear {
+            // Auto-save ranking as soon as results appear, even if user never taps Apply.
+            RankingStore.save(rankedItems: session.rankedItems, forLists: session.selectedListIDs)
         }
     }
 
@@ -54,7 +55,7 @@ struct ResultsView: View {
         HStack(spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
-            Text("Priorities applied to Reminders!")
+            Text("Applied to Reminders!")
                 .font(.subheadline.bold())
             Spacer()
         }
@@ -65,11 +66,7 @@ struct ResultsView: View {
     private var rankedList: some View {
         List {
             ForEach(Array(session.rankedItems.enumerated()), id: \.element.id) { index, item in
-                RankedRow(
-                    item: item,
-                    rank: index + 1,
-                    total: session.rankedItems.count
-                )
+                RankedRow(item: item, rank: index + 1, total: session.rankedItems.count)
             }
         }
         .listStyle(.insetGrouped)
@@ -77,8 +74,7 @@ struct ResultsView: View {
 
     private var bottomBar: some View {
         VStack(spacing: 10) {
-            Divider()
-                .padding(.bottom, 2)
+            Divider().padding(.bottom, 2)
 
             Button(action: { showApplySheet = true }) {
                 Label(
@@ -105,12 +101,9 @@ struct ResultsView: View {
 
                 Spacer()
 
-                Button("Start Over") {
-                    engine.reset()
-                    session.reset()
-                }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                Button("Start Over") { engine.reset(); session.reset() }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal)
             .padding(.bottom, 32)
@@ -119,7 +112,7 @@ struct ResultsView: View {
 
     // MARK: - Actions
 
-    private func applyPriorities(mode: ApplySheet.Mode, urgentCount: Int) {
+    private func applyOptions(_ options: ApplyOptions) {
         isApplying = true
         session.applyError = nil
         showApplySheet = false
@@ -127,11 +120,20 @@ struct ResultsView: View {
         Task { @MainActor in
             defer { isApplying = false }
             do {
-                switch mode {
-                case .tiered:
-                    try remindersManager.applyPriorities(session.rankedItems)
-                case .urgent:
-                    try remindersManager.applyTopNUrgent(session.rankedItems, count: urgentCount)
+                if options.applyPriorities {
+                    switch options.priorityMode {
+                    case .tiered:
+                        try remindersManager.applyPriorities(session.rankedItems)
+                    case .urgent:
+                        try remindersManager.applyTopNUrgent(session.rankedItems, count: options.urgentCount)
+                    }
+                }
+                if options.applyDueDates {
+                    try remindersManager.applyDueDates(
+                        session.rankedItems,
+                        count: options.dueDateCount,
+                        dueDate: options.resolvedDueDate
+                    )
                 }
                 session.didApply = true
                 withAnimation(.spring(response: 0.4)) { showSuccessBanner = true }
@@ -142,9 +144,9 @@ struct ResultsView: View {
     }
 
     private func copyList() {
-        let text = session.rankedItems.enumerated().map { i, item in
-            "\(i + 1). \(item.title)"
-        }.joined(separator: "\n")
+        let text = session.rankedItems.enumerated()
+            .map { "\($0 + 1). \($1.title)" }
+            .joined(separator: "\n")
         UIPasteboard.general.string = text
         withAnimation { didCopy = true }
         Task {
@@ -154,46 +156,108 @@ struct ResultsView: View {
     }
 }
 
+// MARK: - Apply Options
+
+struct ApplyOptions {
+    enum PriorityMode { case tiered, urgent }
+    enum DueTarget { case today, tomorrow, nextWeek, custom }
+
+    var applyPriorities: Bool = true
+    var priorityMode: PriorityMode = .tiered
+    var urgentCount: Int = 3
+
+    var applyDueDates: Bool = false
+    var dueDateCount: Int = 3
+    var dueTarget: DueTarget = .today
+    var customDate: Date = .now
+
+    var resolvedDueDate: Date {
+        let cal = Calendar.current
+        switch dueTarget {
+        case .today:     return cal.startOfDay(for: .now)
+        case .tomorrow:  return cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: .now))!
+        case .nextWeek:  return cal.date(byAdding: .weekOfYear, value: 1, to: cal.startOfDay(for: .now))!
+        case .custom:    return cal.startOfDay(for: customDate)
+        }
+    }
+}
+
 // MARK: - Apply Sheet
 
 private struct ApplySheet: View {
 
-    enum Mode { case tiered, urgent }
-
     let itemCount: Int
     let isApplying: Bool
-    let onApply: (Mode, Int) -> Void
+    let onApply: (ApplyOptions) -> Void
 
-    @State private var mode: Mode = .tiered
-    @State private var urgentCount = 3
+    @State private var options = ApplyOptions()
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             Form {
+                // Priorities
                 Section {
-                    Picker("How to apply", selection: $mode) {
-                        Text("Tiered priorities").tag(Mode.tiered)
-                        Text("Mark top N as urgent").tag(Mode.urgent)
+                    Toggle("Set priorities", isOn: $options.applyPriorities)
+
+                    if options.applyPriorities {
+                        Picker("Mode", selection: $options.priorityMode) {
+                            Text("Tiered").tag(ApplyOptions.PriorityMode.tiered)
+                            Text("Top N urgent").tag(ApplyOptions.PriorityMode.urgent)
+                        }
+                        .pickerStyle(.segmented)
+
+                        if options.priorityMode == .urgent {
+                            Stepper(
+                                "Top \(options.urgentCount) → High, rest → None",
+                                value: $options.urgentCount,
+                                in: 1...max(1, itemCount)
+                            )
+                        }
                     }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
+                } header: {
+                    Text("Priorities")
+                } footer: {
+                    if options.applyPriorities {
+                        Text(options.priorityMode == .tiered
+                            ? "Top 25% → High, next 25% → Medium, next 25% → Low, rest → None."
+                            : "Items 1–\(options.urgentCount) → High priority. All others → None.")
+                    }
                 }
 
-                if mode == .urgent {
-                    Section("How many items?") {
+                // Due Dates
+                Section {
+                    Toggle("Set due dates", isOn: $options.applyDueDates)
+
+                    if options.applyDueDates {
                         Stepper(
-                            "\(urgentCount) item\(urgentCount == 1 ? "" : "s")",
-                            value: $urgentCount,
+                            "Top \(options.dueDateCount) item\(options.dueDateCount == 1 ? "" : "s")",
+                            value: $options.dueDateCount,
                             in: 1...max(1, itemCount)
                         )
-                    }
-                }
 
-                Section {
-                    Label(modeDescription, systemImage: modeIcon)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        Picker("Due", selection: $options.dueTarget) {
+                            Text("Today").tag(ApplyOptions.DueTarget.today)
+                            Text("Tomorrow").tag(ApplyOptions.DueTarget.tomorrow)
+                            Text("Next week").tag(ApplyOptions.DueTarget.nextWeek)
+                            Text("Custom…").tag(ApplyOptions.DueTarget.custom)
+                        }
+
+                        if options.dueTarget == .custom {
+                            DatePicker(
+                                "Date",
+                                selection: $options.customDate,
+                                in: Date.now...,
+                                displayedComponents: .date
+                            )
+                        }
+                    }
+                } header: {
+                    Text("Due Dates")
+                } footer: {
+                    if options.applyDueDates {
+                        Text("Sets the due date on the top \(options.dueDateCount) item\(options.dueDateCount == 1 ? "" : "s"). Does not set a time or notification.")
+                    }
                 }
             }
             .navigationTitle("Apply to Reminders")
@@ -203,27 +267,11 @@ private struct ApplySheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Apply") { onApply(mode, urgentCount) }
+                    Button("Apply") { onApply(options) }
                         .bold()
-                        .disabled(isApplying)
+                        .disabled(isApplying || (!options.applyPriorities && !options.applyDueDates))
                 }
             }
-        }
-    }
-
-    private var modeDescription: String {
-        switch mode {
-        case .tiered:
-            return "Top 25% → High, next 25% → Medium, next 25% → Low, rest → None."
-        case .urgent:
-            return "Top \(urgentCount) item\(urgentCount == 1 ? "" : "s") → High priority. Everything else → None."
-        }
-    }
-
-    private var modeIcon: String {
-        switch mode {
-        case .tiered: return "chart.bar.fill"
-        case .urgent: return "exclamationmark.2"
         }
     }
 }
@@ -260,8 +308,7 @@ private struct RankedRow: View {
                         .foregroundStyle(.secondary)
 
                     if let reasoning = item.aiReasoning {
-                        Text("·")
-                            .foregroundStyle(Color(.tertiaryLabel))
+                        Text("·").foregroundStyle(Color(.tertiaryLabel))
                         Text(reasoning)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -285,9 +332,9 @@ private struct RankedRow: View {
 
     private var badgeColor: Color {
         switch rank {
-        case 1:  return .blue
-        case 2:  return .indigo
-        case 3:  return .purple
+        case 1: return .blue
+        case 2: return .indigo
+        case 3: return .purple
         default: return Color(.systemGray3)
         }
     }

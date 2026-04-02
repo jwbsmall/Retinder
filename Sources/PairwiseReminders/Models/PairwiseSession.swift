@@ -38,6 +38,18 @@ final class PairwiseSession: ObservableObject {
     /// True once priorities have been successfully written back.
     @Published var didApply = false
 
+    /// Reconstructs `rankedItems` from a stored order of calendarItemIdentifiers.
+    /// Items no longer present (completed, deleted) are dropped.
+    /// Items not in the stored order (newly added) are appended at the end.
+    func applyStoredRanking(_ storedIDs: [String]) {
+        let itemsByID = Dictionary(uniqueKeysWithValues: allItems.map { ($0.id, $0) })
+        var ranked = storedIDs.compactMap { itemsByID[$0] }
+        let seen = Set(storedIDs)
+        ranked.append(contentsOf: allItems.filter { !seen.contains($0.id) })
+        for i in ranked.indices { ranked[i].sortRank = i }
+        rankedItems = ranked
+    }
+
     func reset() {
         phase = .listPicking
         selectedListIDs = []

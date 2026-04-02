@@ -10,6 +10,8 @@ struct ListPickerView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showingAPIKeySheet = false
+    @State private var showResumeAlert = false
+    @State private var pendingStoredOrder: [String]? = nil
 
     var body: some View {
         NavigationStack {
@@ -18,6 +20,24 @@ struct ListPickerView: View {
                 .toolbar { toolbarContent }
                 .sheet(isPresented: $showingAPIKeySheet) {
                     APIKeySheet()
+                }
+                .alert("Resume Previous Ranking?", isPresented: $showResumeAlert) {
+                    Button("Resume") {
+                        if let order = pendingStoredOrder {
+                            session.applyStoredRanking(order)
+                            session.phase = .results
+                        }
+                    }
+                    Button("Start Fresh", role: .destructive) {
+                        RankingStore.clear(forLists: session.selectedListIDs)
+                        session.phase = .filtering
+                    }
+                    Button("Cancel", role: .cancel) {
+                        session.allItems = []
+                        pendingStoredOrder = nil
+                    }
+                } message: {
+                    Text("You've ranked these lists before. Pick up where you left off, or start a new comparison.")
                 }
         }
     }
@@ -144,7 +164,12 @@ struct ListPickerView: View {
                     return
                 }
                 session.allItems = items
-                session.phase = .filtering
+                if let stored = RankingStore.load(forLists: session.selectedListIDs) {
+                    pendingStoredOrder = stored
+                    showResumeAlert = true
+                } else {
+                    session.phase = .filtering
+                }
             } catch {
                 errorMessage = error.localizedDescription
             }

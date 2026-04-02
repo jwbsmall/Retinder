@@ -84,6 +84,20 @@ final class RemindersManager: ObservableObject {
         try store.commit()
     }
 
+    /// Sets the due date (date-only, no time) for the top `count` ranked items, then commits.
+    func applyDueDates(_ items: [ReminderItem], count: Int, dueDate: Date) throws {
+        guard !items.isEmpty else { return }
+        let n = min(count, items.count)
+        let components = Calendar.current.dateComponents([.year, .month, .day], from: dueDate)
+        for (index, item) in items.enumerated() {
+            if index < n {
+                item.ekReminder.dueDateComponents = components
+            }
+            try store.save(item.ekReminder, commit: false)
+        }
+        try store.commit()
+    }
+
     /// Marks the top `count` items as High priority and the rest as None, then commits.
     func applyTopNUrgent(_ items: [ReminderItem], count: Int) throws {
         guard !items.isEmpty else { return }
