@@ -20,6 +20,8 @@
 	<string>1</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Retinder uses alarms to alert you about your highest-priority reminders even when Do Not Disturb is on.</string>
 	<key>NSRemindersUsageDescription</key>
 	<string>Retinder needs access to your reminders to help you prioritise them.</string>
 	<key>UIApplicationSceneManifest</key>
