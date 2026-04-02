@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+.AppleDouble
+
+# Xcode per-user state (never commit these — they contain your local window layout,
+# breakpoints, etc. and conflict constantly in teams)
+xcuserdata/
+*.xcuserstate
+
+# Derived data and build products
+DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager (not used here, but safe to include)
+.swiftpm/
+.build/
+
+# XcodeGen generates the .xcodeproj from project.yml.
+# We commit the generated project so Xcode works without needing xcodegen installed,
+# but we do NOT commit the user-specific workspace data inside it.
+PairwiseReminders.xcodeproj/xcuserdata/
+PairwiseReminders.xcodeproj/project.xcworkspace/xcuserdata/

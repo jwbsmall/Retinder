@@ -1,0 +1,24 @@
+name: PairwiseReminders
+options:
+  bundleIdPrefix: com.josmall
+  deploymentTarget:
+    iOS: "26.0"
+targets:
+  PairwiseReminders:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    info:
+      path: PairwiseReminders/Info.plist
+      properties:
+        CFBundleDisplayName: Retinder
+        NSRemindersUsageDescription: "Retinder needs access to your reminders to help you prioritise them."
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.josmall.PairwiseReminders
+        SWIFT_VERSION: 5.9
+        DEVELOPMENT_TEAM: ""
+    dependencies:
+      - sdk: EventKit.framework
