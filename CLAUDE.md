@@ -16,6 +16,17 @@ AI assistant guidance for working in this codebase.
 
 ---
 
+## Core Principles
+
+These apply to every change made in this codebase, without exception:
+
+- **No dependencies.** Use only Apple's built-in frameworks. No SPM packages, no CocoaPods, no third-party code of any kind.
+- **Native/stock UI.** Use SwiftUI's built-in components. Only build custom UI when the system provides nothing adequate for the job.
+- **Good UX.** Clear affordances, immediate feedback, graceful error states. Never block the user on non-essential work (network, AI, permissions).
+- **Readable code.** Clear names, short focused functions, idiomatic Swift. Obvious over clever.
+
+---
+
 ## Repository Structure
 
 ```
@@ -51,27 +62,29 @@ Retinder/
 
 ## Build & Run
 
-### Prerequisites
+**Prerequisites:** Xcode 16+ (project targets iOS 26.0).
 
-- **Xcode 16+** (project targets iOS 26.0)
-- **XcodeGen** to regenerate the `.xcodeproj` when `project.yml` changes:
-  ```bash
-  brew install xcodegen
-  ```
+1. Open the project: `open PairwiseReminders.xcodeproj`
+2. Select the **PairwiseReminders** scheme and run on an iOS 26 simulator or device.
 
-### Steps
+### XcodeGen and `project.yml`
 
-1. Regenerate project if `project.yml` was modified:
-   ```bash
-   xcodegen generate
-   ```
-2. Open the project:
-   ```bash
-   open PairwiseReminders.xcodeproj
-   ```
-3. Select the **PairwiseReminders** scheme and run on an iOS 26 simulator or device.
+`project.yml` is the source of truth for project structure — targets, source files, frameworks, build settings, and permissions. XcodeGen reads it and generates `PairwiseReminders.xcodeproj`.
 
-> **Note:** The `.xcodeproj` is committed to the repo for convenience, but `project.yml` is the source of truth. When adding files, targets, or build settings, edit `project.yml` and regenerate.
+The `.xcodeproj` is committed so the repo builds immediately after cloning without needing XcodeGen installed. But it is a derived artifact.
+
+**You need XcodeGen when the project structure changes** — adding a new Swift file, adding a framework, or changing build settings. Without regenerating after editing `project.yml`, the `.xcodeproj` goes out of sync and new files won't compile.
+
+```bash
+brew install xcodegen   # one-time
+xcodegen generate       # run after any project.yml change
+```
+
+**The sync risk:** Two ways to get out of sync:
+1. Edit `project.yml` but forget to run `xcodegen generate`
+2. Add a file through Xcode's UI without adding it to `project.yml`
+
+**Mitigation:** Always add new source files by editing `project.yml` first, then running `xcodegen generate`. Commit the updated `project.yml` and regenerated `.xcodeproj` together. Never hand-edit `.xcodeproj` directly.
 
 ---
 
@@ -194,7 +207,7 @@ The API key is auto-filled on the onboarding screen if the pasteboard contains a
 ## What Not to Do
 
 - **Do not hand-edit `PairwiseReminders.xcodeproj/`** — regenerate via `xcodegen generate` instead.
-- **Do not add SPM package dependencies** without updating `project.yml` under `packages` and `dependencies`.
+- **Do not add any third-party dependencies** — no SPM packages, no CocoaPods, no external code of any kind.
 - **Do not add `store.commit()` inside loops** — it's expensive; commit once after all mutations.
 - **Do not force-unwrap optionals** from EventKit — items may be deleted or inaccessible at any time.
 - **Do not call async methods that publish state changes off `@MainActor`** — all published properties must be mutated on the main thread.
