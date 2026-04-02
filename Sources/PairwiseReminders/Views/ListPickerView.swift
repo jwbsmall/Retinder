@@ -60,12 +60,19 @@ struct ListPickerView: View {
 
     private var listPickerContent: some View {
         VStack(spacing: 0) {
-            List(remindersManager.lists, id: \.calendarIdentifier) { list in
-                ListRow(
-                    list: list,
-                    isSelected: session.selectedListIDs.contains(list.calendarIdentifier),
-                    onToggle: { toggleList(list) }
-                )
+            List {
+                Section {
+                    AllRemindersRow(isSelected: isAllSelected, onToggle: toggleAll)
+                }
+                Section("Lists") {
+                    ForEach(remindersManager.lists, id: \.calendarIdentifier) { list in
+                        ListRow(
+                            list: list,
+                            isSelected: session.selectedListIDs.contains(list.calendarIdentifier),
+                            onToggle: { toggleList(list) }
+                        )
+                    }
+                }
             }
             .listStyle(.insetGrouped)
 
@@ -132,12 +139,23 @@ struct ListPickerView: View {
         !session.selectedListIDs.isEmpty
     }
 
+    private var isAllSelected: Bool {
+        !remindersManager.lists.isEmpty &&
+        session.selectedListIDs.count == remindersManager.lists.count
+    }
+
     private var selectedCount: String {
         let n = session.selectedListIDs.count
-        switch n {
-        case 0: return ""
-        case 1: return "1 List"
-        default: return "\(n) Lists"
+        if n == 0 { return "" }
+        if isAllSelected { return "All Reminders" }
+        return n == 1 ? "1 List" : "\(n) Lists"
+    }
+
+    private func toggleAll() {
+        if isAllSelected {
+            session.selectedListIDs.removeAll()
+        } else {
+            session.selectedListIDs = Set(remindersManager.lists.map(\.calendarIdentifier))
         }
     }
 
@@ -192,6 +210,34 @@ private struct ListRow: View {
                     .frame(width: 12, height: 12)
 
                 Text(list.title)
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? .blue : Color(.tertiaryLabel))
+                    .font(.title3)
+                    .animation(.spring(response: 0.25), value: isSelected)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - All Reminders Row
+
+private struct AllRemindersRow: View {
+    let isSelected: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 12) {
+                Image(systemName: "tray.full.fill")
+                    .foregroundStyle(.blue)
+                    .frame(width: 12)
+
+                Text("All Reminders")
                     .foregroundStyle(.primary)
 
                 Spacer()

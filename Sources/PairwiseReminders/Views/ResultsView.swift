@@ -65,11 +65,28 @@ struct ResultsView: View {
 
     private var rankedList: some View {
         List {
-            ForEach(Array(session.rankedItems.enumerated()), id: \.element.id) { index, item in
-                RankedRow(item: item, rank: index + 1, total: session.rankedItems.count)
+            ForEach(session.rankedItems) { item in
+                RankedRow(
+                    item: item,
+                    rank: (session.rankedItems.firstIndex(of: item) ?? 0) + 1,
+                    total: session.rankedItems.count
+                )
             }
+            .onMove(perform: moveItems)
         }
         .listStyle(.insetGrouped)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { EditButton() }
+        }
+    }
+
+    private func moveItems(from source: IndexSet, to destination: Int) {
+        session.rankedItems.move(fromOffsets: source, toOffset: destination)
+        for i in session.rankedItems.indices {
+            session.rankedItems[i].sortRank = i
+        }
+        session.didApply = false
+        RankingStore.save(rankedItems: session.rankedItems, forLists: session.selectedListIDs)
     }
 
     private var bottomBar: some View {
