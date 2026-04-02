@@ -62,8 +62,16 @@ struct AnthropicService {
             throw AnthropicError.invalidResponse
         }
         guard httpResponse.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? "no body"
-            throw AnthropicError.apiError(statusCode: httpResponse.statusCode, body: body)
+            // Extract human-readable message from Anthropic's error envelope when possible.
+            let message: String
+            if let errorBody = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let errorObj = errorBody["error"] as? [String: Any],
+               let msg = errorObj["message"] as? String {
+                message = msg
+            } else {
+                message = String(data: data, encoding: .utf8) ?? "no body"
+            }
+            throw AnthropicError.apiError(statusCode: httpResponse.statusCode, message: message)
         }
         return data
     }
@@ -116,15 +124,21 @@ struct AnthropicService {
 
     enum AnthropicError: LocalizedError {
         case invalidResponse
-        case apiError(statusCode: Int, body: String)
+        case apiError(statusCode: Int, message: String)
         case parseError(String)
 
         var errorDescription: String? {
             switch self {
             case .invalidResponse:
                 return "Received an invalid response from the Anthropic API."
-            case .apiError(let code, let body):
-                return "API error \(code): \(body)"
+            case .apiError(let code, let message):
+                switch code {
+                case 401: return "Invalid API key — \(message)"
+                case 403: return "API key lacks permission — \(message)"
+                case 429: return "Rate limit or no credits remaining — \(message)"
+                case 500, 529: return "Anthropic API server error — try again shortly"
+                default:  return "API error \(code): \(message)"
+                }
             case .parseError(let msg):
                 return "Failed to parse Claude's response: \(msg)"
             }

@@ -53,12 +53,19 @@ struct FilteringView: View {
         let items = session.allItems
         statusLine = "Found \(items.count) reminder\(items.count == 1 ? "" : "s"). Asking Claude to identify the most important…"
 
-        // Attempt AI filtering. Any failure (no key, network error, rate limit, etc.)
-        // falls through to the fallback — the pairwise comparison always proceeds.
+        // Attempt AI filtering. Any failure falls through to the fallback —
+        // the pairwise comparison always proceeds regardless of AI availability.
         let aiResult: [ReminderItem]?
+        var aiErrorMessage: String?
+
         if let apiKey = KeychainService.load() {
             let service = AnthropicService(apiKey: apiKey)
-            aiResult = try? await service.filterReminders(items)
+            do {
+                aiResult = try await service.filterReminders(items)
+            } catch {
+                aiResult = nil
+                aiErrorMessage = error.localizedDescription
+            }
         } else {
             aiResult = nil
         }
@@ -74,7 +81,13 @@ struct FilteringView: View {
             let fallback = items.count <= 20 ? items : Array(items.shuffled().prefix(20))
             session.filteredItems = fallback
             let count = fallback.count
-            statusLine = "AI filtering unavailable — using \(count) item\(count == 1 ? "" : "s")."
+            if let error = aiErrorMessage {
+                statusLine = "AI filtering failed: \(error). Comparing \(count) item\(count == 1 ? "" : "s")."
+            } else if KeychainService.load() == nil {
+                statusLine = "No API key set — comparing \(count) item\(count == 1 ? "" : "s"). Add a key in settings to enable AI filtering."
+            } else {
+                statusLine = "AI filtering unavailable — comparing \(count) item\(count == 1 ? "" : "s")."
+            }
             try? await Task.sleep(for: .milliseconds(600))
         }
 
