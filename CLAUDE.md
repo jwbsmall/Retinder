@@ -33,8 +33,7 @@ These apply to every change made in this codebase, without exception:
 Retinder/
 ├── CLAUDE.md                          # This file
 ├── ARCHITECTURE.md                    # Deep-dive architecture docs
-├── project.yml                        # XcodeGen config (source of truth for project)
-├── PairwiseReminders.xcodeproj/       # Generated — do not hand-edit
+├── PairwiseReminders.xcodeproj/       # Xcode project — edit via Xcode, not by hand
 ├── PairwiseReminders/
 │   └── Info.plist                     # Generated app metadata
 └── Sources/PairwiseReminders/
@@ -67,24 +66,7 @@ Retinder/
 1. Open the project: `open PairwiseReminders.xcodeproj`
 2. Select the **PairwiseReminders** scheme and run on an iOS 26 simulator or device.
 
-### XcodeGen and `project.yml`
-
-`project.yml` is the source of truth for project structure — targets, source files, frameworks, build settings, and permissions. XcodeGen reads it and generates `PairwiseReminders.xcodeproj`.
-
-The `.xcodeproj` is committed so the repo builds immediately after cloning without needing XcodeGen installed. But it is a derived artifact.
-
-**You need XcodeGen when the project structure changes** — adding a new Swift file, adding a framework, or changing build settings. Without regenerating after editing `project.yml`, the `.xcodeproj` goes out of sync and new files won't compile.
-
-```bash
-brew install xcodegen   # one-time
-xcodegen generate       # run after any project.yml change
-```
-
-**The sync risk:** Two ways to get out of sync:
-1. Edit `project.yml` but forget to run `xcodegen generate`
-2. Add a file through Xcode's UI without adding it to `project.yml`
-
-**Mitigation:** Always add new source files by editing `project.yml` first, then running `xcodegen generate`. Commit the updated `project.yml` and regenerated `.xcodeproj` together. Never hand-edit `.xcodeproj` directly.
+To add new source files, use Xcode's New File dialog — it updates `.xcodeproj` automatically.
 
 ---
 
@@ -200,13 +182,12 @@ The API key is auto-filled on the onboarding screen if the pasteboard contains a
 
 ## iOS Permissions
 
-`NSRemindersUsageDescription` is declared in `project.yml`. The app requests full Reminders access via `EKEventStore.requestFullAccessToReminders()`.
+`NSRemindersUsageDescription` is declared in `PairwiseReminders/Info.plist`. The app requests full Reminders access via `EKEventStore.requestFullAccessToReminders()`.
 
 ---
 
 ## What Not to Do
 
-- **Do not hand-edit `PairwiseReminders.xcodeproj/`** — regenerate via `xcodegen generate` instead.
 - **Do not add any third-party dependencies** — no SPM packages, no CocoaPods, no external code of any kind.
 - **Do not add `store.commit()` inside loops** — it's expensive; commit once after all mutations.
 - **Do not force-unwrap optionals** from EventKit — items may be deleted or inaccessible at any time.
