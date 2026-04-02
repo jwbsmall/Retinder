@@ -71,8 +71,16 @@ final class PairwiseEngine: ObservableObject {
               let pair = currentPair else { return }
         pendingContinuation = nil
         currentPair = nil
-        // Resume with true if the left item won, false if the right item won
         continuation.resume(returning: winner.id == pair.0.id)
+    }
+
+    /// Call when the user has no preference between the current pair.
+    /// Randomly assigns a winner so the sort can proceed.
+    func skip() {
+        guard let continuation = pendingContinuation else { return }
+        pendingContinuation = nil
+        currentPair = nil
+        continuation.resume(returning: Bool.random())
     }
 
     /// Resets all state so the engine can be reused for a new session.
