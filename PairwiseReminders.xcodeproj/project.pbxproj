@@ -21,6 +21,7 @@
 		AA0000000000000000000031 /* PairwiseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000022 /* PairwiseView.swift */; };
 		AA0000000000000000000032 /* ResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000023 /* ResultsView.swift */; };
 		AA0000000000000000000033 /* EventKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000024 /* EventKit.framework */; };
+		AA0000000000000000000035 /* RankingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000034 /* RankingStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +40,7 @@
 		AA0000000000000000000022 /* PairwiseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairwiseView.swift; sourceTree = "<group>"; };
 		AA0000000000000000000023 /* ResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsView.swift; sourceTree = "<group>"; };
 		AA0000000000000000000024 /* EventKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = EventKit.framework; path = System/Library/Frameworks/EventKit.framework; sourceTree = SDKROOT; };
+		AA0000000000000000000034 /* RankingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RankingStore.swift; sourceTree = "<group>"; };
 		AA0000000000000000000025 /* PairwiseReminders.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PairwiseReminders.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -107,6 +109,7 @@
 				AA000000000000000000001A /* RemindersManager.swift */,
 				AA000000000000000000001B /* AnthropicService.swift */,
 				AA000000000000000000001C /* KeychainService.swift */,
+				AA0000000000000000000034 /* RankingStore.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -229,6 +232,7 @@
 				AA0000000000000000000030 /* FilteringView.swift in Sources */,
 				AA0000000000000000000031 /* PairwiseView.swift in Sources */,
 				AA0000000000000000000032 /* ResultsView.swift in Sources */,
+				AA0000000000000000000035 /* RankingStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
