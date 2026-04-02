@@ -221,6 +221,13 @@ private struct CardBody: View {
                     .lineLimit(2)
             }
 
+            if let notes = item.notes, !notes.isEmpty {
+                Text(notes)
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(3)
+            }
+
             HStack(spacing: 12) {
                 Label(item.listName, systemImage: "list.bullet")
                     .font(.caption)

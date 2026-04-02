@@ -66,21 +66,10 @@ final class RemindersManager: ObservableObject {
     func applyPriorities(_ items: [ReminderItem]) throws {
         let total = items.count
         guard total > 0 else { return }
-
-        let quartile = max(total / 4, 1)
-
-        for (index, item) in items.enumerated() {
-            let priority: Int
-            if index < quartile          { priority = 1 }  // High
-            else if index < quartile * 2 { priority = 5 }  // Medium
-            else if index < quartile * 3 { priority = 9 }  // Low
-            else                         { priority = 0 }  // None
-
-            item.ekReminder.priority = priority
-            // Must stage each reminder via save before committing.
+        for item in items {
+            item.ekReminder.priority = item.ekPriority(totalCount: total)
             try store.save(item.ekReminder, commit: false)
         }
-
         try store.commit()
     }
 
