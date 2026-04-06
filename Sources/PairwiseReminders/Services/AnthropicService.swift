@@ -21,10 +21,7 @@ struct AnthropicService {
         let systemPrompt = """
         You are a productivity assistant. Given a list of reminders/tasks, identify the ~15 most \
         important, time-sensitive, or decision-worthy items. Filter out obvious recurring admin tasks, \
-        low-stakes errands, and anything that can clearly wait. \
-        Return a JSON array of objects: \
-        [{"id": "<original_id>", "title": "<title>", "reasoning": "<optional: one short tag ONLY if clear from the title, e.g. 'time-sensitive', 'blocks others', 'decision needed', 'high stakes' — omit the field entirely if the title is vague>"}]. \
-        Return only the JSON array, no other text, no markdown fences.
+        low-stakes errands, and anything that can clearly wait.
         """
 
         let numberedList = items.enumerated().map { i, item in
@@ -33,10 +30,35 @@ struct AnthropicService {
 
         let userMessage = "Here are my reminders:\n\n\(numberedList)\n\nIdentify the most important ones."
 
+        let tool: [String: Any] = [
+            "name": "shortlist_reminders",
+            "description": "Return the shortlisted reminder IDs with one-line reasoning for each.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "items": [
+                        "type": "array",
+                        "items": [
+                            "type": "object",
+                            "properties": [
+                                "id":        ["type": "string"],
+                                "title":     ["type": "string"],
+                                "reasoning": ["type": "string"]
+                            ],
+                            "required": ["id", "title", "reasoning"]
+                        ]
+                    ]
+                ],
+                "required": ["items"]
+            ]
+        ]
+
         let requestBody: [String: Any] = [
             "model": model,
             "max_tokens": 4096,
             "system": systemPrompt,
+            "tools": [tool],
+            "tool_choice": ["type": "tool", "name": "shortlist_reminders"],
             "messages": [
                 ["role": "user", "content": userMessage]
             ]
@@ -77,28 +99,15 @@ struct AnthropicService {
     }
 
     private func parseFilterResponse(_ data: Data, originalItems: [ReminderItem]) throws -> [ReminderItem] {
-        // Unwrap the Claude API envelope: { content: [{ type: "text", text: "..." }] }
+        // Unwrap the Tool Use envelope: { content: [{ type: "tool_use", input: { items: [...] } }] }
         guard
             let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let contentBlocks = envelope["content"] as? [[String: Any]],
-            let firstBlock = contentBlocks.first,
-            let rawText = firstBlock["text"] as? String
+            let toolBlock = contentBlocks.first(where: { $0["type"] as? String == "tool_use" }),
+            let input = toolBlock["input"] as? [String: Any],
+            let shortlist = input["items"] as? [[String: Any]]
         else {
-            throw AnthropicError.parseError("Unexpected API response structure.")
-        }
-
-        // Claude returns a JSON array; strip any accidental markdown fences
-        let cleanText = rawText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "```json", with: "")
-            .replacingOccurrences(of: "```", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard
-            let jsonData = cleanText.data(using: .utf8),
-            let shortlist = try JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]]
-        else {
-            throw AnthropicError.parseError("Could not parse shortlist JSON from Claude's response.")
+            throw AnthropicError.parseError("Unexpected Tool Use response structure.")
         }
 
         let itemsByID = Dictionary(uniqueKeysWithValues: originalItems.map { ($0.id, $0) })
@@ -113,7 +122,7 @@ struct AnthropicService {
             filtered.append(item)
         }
 
-        // Fallback: if Claude returned no matching IDs, return the first 15 items
+        // Fallback: if no IDs matched, return the first 15 items
         if filtered.isEmpty {
             return Array(originalItems.prefix(15))
         }
