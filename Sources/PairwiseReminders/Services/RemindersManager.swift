@@ -1,8 +1,5 @@
 import Foundation
 import EventKit
-#if canImport(AlarmKit)
-import AlarmKit
-#endif
 
 /// Handles all EventKit interactions: requesting access, fetching reminders, writing priorities.
 @MainActor
@@ -100,27 +97,6 @@ final class RemindersManager: ObservableObject {
         }
         try store.commit()
     }
-
-    /// Schedules AlarmKit alarms for the top `count` items (bypasses DND/Focus).
-    /// Requires the com.apple.developer.alarmkit entitlement.
-    #if canImport(AlarmKit)
-    @available(iOS 26, *)
-    func applyAlarms(_ items: [ReminderItem], count: Int) async throws {
-        let status = await AlarmManager.shared.requestAuthorization()
-        guard status == .authorized else { return }
-        let n = min(count, items.count)
-        for item in items.prefix(n) {
-            let fireDate = item.dueDate ?? Date().addingTimeInterval(3600)
-            var attributes = AlarmAttributes(title: item.title)
-            let alarm = Alarm(
-                id: item.id,
-                attributes: attributes,
-                schedule: .fixed(fireDate)
-            )
-            try await AlarmManager.shared.add(alarm)
-        }
-    }
-    #endif
 
     /// Updates a reminder's fields in-place and commits immediately.
     func updateReminder(_ item: ReminderItem, title: String, notes: String?,

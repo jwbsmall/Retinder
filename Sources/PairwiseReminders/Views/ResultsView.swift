@@ -176,13 +176,7 @@ struct ResultsView: View {
                         dueDate: options.resolvedDueDate
                     )
                 }
-                if options.scheduleAlarms {
-                    if #available(iOS 26, *) {
-                        #if canImport(AlarmKit)
-                        try await remindersManager.applyAlarms(session.rankedItems, count: options.alarmCount)
-                        #endif
-                    }
-                }
+
                 session.didApply = true
                 withAnimation(.spring(response: 0.4)) { showSuccessBanner = true }
             } catch {
@@ -212,9 +206,6 @@ struct ApplyOptions {
     var dueDateCount: Int = 3
     var dueTarget: DueTarget = .today
     var customDate: Date = .now
-
-    var scheduleAlarms: Bool = false
-    var alarmCount: Int = 3
 
     var resolvedDueDate: Date {
         let cal = Calendar.current
@@ -305,26 +296,7 @@ private struct ApplySheet: View {
                     }
                 }
 
-                // Alarms
-                if #available(iOS 26, *) {
-                    Section {
-                        Toggle("Set urgent alerts", isOn: $options.scheduleAlarms)
 
-                        if options.scheduleAlarms {
-                            Stepper(
-                                "Top \(options.alarmCount) item\(options.alarmCount == 1 ? "" : "s")",
-                                value: $options.alarmCount,
-                                in: 1...max(1, itemCount)
-                            )
-                        }
-                    } header: {
-                        Text("Alarms")
-                    } footer: {
-                        if options.scheduleAlarms {
-                            Text("Schedules an alarm for the top \(options.alarmCount) item\(options.alarmCount == 1 ? "" : "s") that fires even when Do Not Disturb is on.")
-                        }
-                    }
-                }
             }
             .navigationTitle("Apply to Reminders")
             .navigationBarTitleDisplayMode(.inline)
@@ -335,7 +307,7 @@ private struct ApplySheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") { onApply(options) }
                         .bold()
-                        .disabled(isApplying || (!options.applyPriorities && !options.applyDueDates && !options.scheduleAlarms))
+                        .disabled(isApplying || (!options.applyPriorities && !options.applyDueDates))
                 }
             }
         }
