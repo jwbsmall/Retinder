@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// Shows the final ranked list and lets the user write priorities back to Reminders.
 struct ResultsView: View {
@@ -11,7 +10,7 @@ struct ResultsView: View {
     @State private var showApplySheet = false
     @State private var showSuccessBanner = false
     @State private var isApplying = false
-    @State private var didCopy = false
+    @State private var showStartOverAlert = false
     @State private var editingItem: ReminderItem?
     @Environment(\.editMode) private var editMode
 
@@ -125,21 +124,30 @@ struct ResultsView: View {
             .padding(.horizontal)
 
             HStack {
-                Button(action: copyList) {
-                    Label(didCopy ? "Copied!" : "Copy list", systemImage: "doc.on.doc")
+                ShareLink(
+                    item: shareText,
+                    subject: Text("My Priorities"),
+                    message: Text("Here are my ranked reminders:")
+                ) {
+                    Label("Share list", systemImage: "square.and.arrow.up")
                         .font(.subheadline)
-                        .animation(.default, value: didCopy)
                 }
                 .buttonStyle(.bordered)
 
                 Spacer()
 
-                Button("Start Over") { engine.reset(); session.reset() }
+                Button("Start Over", role: .destructive) { showStartOverAlert = true }
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal)
             .padding(.bottom, 32)
+            .alert("Start over?", isPresented: $showStartOverAlert) {
+                Button("Start Over", role: .destructive) { engine.reset(); session.reset() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Your current ranking will be discarded.")
+            }
         }
     }
 
@@ -183,16 +191,10 @@ struct ResultsView: View {
         }
     }
 
-    private func copyList() {
-        let text = session.rankedItems.enumerated()
+    private var shareText: String {
+        session.rankedItems.enumerated()
             .map { "\($0 + 1). \($1.title)" }
             .joined(separator: "\n")
-        UIPasteboard.general.string = text
-        withAnimation { didCopy = true }
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            withAnimation { didCopy = false }
-        }
     }
 }
 

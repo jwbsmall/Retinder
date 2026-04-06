@@ -11,6 +11,7 @@ struct PairwiseView: View {
     /// Randomly flipped each comparison so neither position is consistently "favoured".
     @State private var isFlipped: Bool = false
     @State private var showCancelAlert = false
+    @State private var editingItem: ReminderItem?
 
     private let swipeThreshold: CGFloat = 100
 
@@ -59,6 +60,14 @@ struct PairwiseView: View {
             }
         } message: {
             Text("Your comparison progress will be lost.")
+        }
+        .sheet(item: $editingItem, onDismiss: {
+            let items = session.filteredItems
+            session.filteredItems = items
+        }) { item in
+            ReminderEditSheet(item: item)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -112,11 +121,12 @@ struct PairwiseView: View {
         return VStack(spacing: 0) {
             Spacer()
 
-            // Compact top card — tap to pick it
+            // Compact top card — tap to pick it, long-press to edit
             Button { engine.choose(winner: topItem) } label: {
                 compactCard(topItem)
             }
             .buttonStyle(.plain)
+            .simultaneousGesture(LongPressGesture().onEnded { _ in editingItem = topItem })
             .padding(.horizontal)
 
             HStack {
@@ -131,6 +141,7 @@ struct PairwiseView: View {
             // Large bottom card — swipe right to pick it, swipe left to pick top card
             swipeCard(item: bottomItem, versus: topItem)
                 .padding(.horizontal)
+                .simultaneousGesture(LongPressGesture().onEnded { _ in editingItem = bottomItem })
 
             swipeHints
                 .padding(.top, 10)
@@ -248,13 +259,6 @@ private struct CardBody: View {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
-
-            if let reasoning = item.aiReasoning {
-                Text(reasoning)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
 
             if let notes = item.notes, !notes.isEmpty {
                 Text(notes)

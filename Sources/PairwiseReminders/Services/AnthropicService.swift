@@ -23,7 +23,7 @@ struct AnthropicService {
         important, time-sensitive, or decision-worthy items. Filter out obvious recurring admin tasks, \
         low-stakes errands, and anything that can clearly wait. \
         Return a JSON array of objects: \
-        [{"id": "<original_id>", "title": "<title>", "reasoning": "<one line why it matters>"}]. \
+        [{"id": "<original_id>", "title": "<title>", "reasoning": "<optional: one short tag ONLY if clear from the title, e.g. 'time-sensitive', 'blocks others', 'decision needed', 'high stakes' — omit the field entirely if the title is vague>"}]. \
         Return only the JSON array, no other text, no markdown fences.
         """
 
