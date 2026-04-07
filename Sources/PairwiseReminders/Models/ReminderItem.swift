@@ -2,7 +2,7 @@ import Foundation
 import EventKit
 
 /// Wraps an EKReminder with metadata added during the prioritisation session.
-struct ReminderItem: Identifiable, Equatable {
+struct ReminderItem: Identifiable, Equatable, @unchecked Sendable {
     let id: String              // EKReminder.calendarItemIdentifier
     let ekReminder: EKReminder  // Reference type — mutations are visible everywhere
 
