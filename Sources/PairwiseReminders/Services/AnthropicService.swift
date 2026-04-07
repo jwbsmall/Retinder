@@ -13,10 +13,22 @@ struct AnthropicService {
 
     // MARK: - Public Interface
 
-    /// Sends the full reminder list to Claude and returns a shortlist of the
-    /// ~15 most important, time-sensitive, or decision-worthy items.
-    func filterReminders(_ items: [ReminderItem]) async throws -> [ReminderItem] {
-        guard !items.isEmpty else { return [] }
+    /// Sendable snapshot of a reminder — only the fields needed for AI filtering.
+    struct ReminderSummary: Sendable {
+        let id: String
+        let title: String
+    }
+
+    /// Sendable result from AI filtering — an ID and optional reasoning string.
+    struct FilteredResult: Sendable {
+        let id: String
+        let reasoning: String?
+    }
+
+    /// Sends reminder summaries to Claude and returns the shortlisted IDs with reasoning.
+    /// Callers are responsible for mapping results back to their domain objects.
+    func filterReminders(_ summaries: [ReminderSummary]) async throws -> [FilteredResult] {
+        guard !summaries.isEmpty else { return [] }
 
         let systemPrompt = """
         You are a productivity assistant. Given a list of reminders/tasks, identify the ~15 most \
@@ -24,8 +36,8 @@ struct AnthropicService {
         low-stakes errands, and anything that can clearly wait.
         """
 
-        let numberedList = items.enumerated().map { i, item in
-            "\(i + 1). [ID: \(item.id)] \(item.title)"
+        let numberedList = summaries.enumerated().map { i, s in
+            "\(i + 1). [ID: \(s.id)] \(s.title)"
         }.joined(separator: "\n")
 
         let userMessage = "Here are my reminders:\n\n\(numberedList)\n\nIdentify the most important ones."
@@ -65,7 +77,7 @@ struct AnthropicService {
         ]
 
         let responseData = try await performRequest(body: requestBody)
-        return try parseFilterResponse(responseData, originalItems: items)
+        return try parseFilterResponse(responseData)
     }
 
     // MARK: - Private Helpers
@@ -98,7 +110,7 @@ struct AnthropicService {
         return data
     }
 
-    private func parseFilterResponse(_ data: Data, originalItems: [ReminderItem]) throws -> [ReminderItem] {
+    private func parseFilterResponse(_ data: Data) throws -> [FilteredResult] {
         // Unwrap the Tool Use envelope: { content: [{ type: "tool_use", input: { items: [...] } }] }
         guard
             let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -110,23 +122,10 @@ struct AnthropicService {
             throw AnthropicError.parseError("Unexpected Tool Use response structure.")
         }
 
-        let itemsByID = Dictionary(uniqueKeysWithValues: originalItems.map { ($0.id, $0) })
-
-        var filtered: [ReminderItem] = []
-        for entry in shortlist {
-            guard
-                let id = entry["id"] as? String,
-                var item = itemsByID[id]
-            else { continue }
-            item.aiReasoning = entry["reasoning"] as? String
-            filtered.append(item)
+        return shortlist.compactMap { entry in
+            guard let id = entry["id"] as? String else { return nil }
+            return FilteredResult(id: id, reasoning: entry["reasoning"] as? String)
         }
-
-        // Fallback: if no IDs matched, return the first 15 items
-        if filtered.isEmpty {
-            return Array(originalItems.prefix(15))
-        }
-        return filtered
     }
 
     // MARK: - Errors

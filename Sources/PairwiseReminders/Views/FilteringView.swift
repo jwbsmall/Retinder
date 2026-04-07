@@ -49,28 +49,40 @@ struct FilteringView: View {
 
     // MARK: - Filtering Logic
 
+    @MainActor
     private func runFiltering() async {
         let items = session.allItems
         statusLine = "Found \(items.count) reminder\(items.count == 1 ? "" : "s"). Asking Claude to identify the most important…"
 
         // Attempt AI filtering. Any failure falls through to the fallback —
         // the pairwise comparison always proceeds regardless of AI availability.
-        let aiResult: [ReminderItem]?
         var aiErrorMessage: String?
+        var filteredItems: [ReminderItem]?
 
         if let apiKey = KeychainService.load() {
+            // Extract Sendable summaries before crossing the actor boundary.
+            let summaries = items.map { AnthropicService.ReminderSummary(id: $0.id, title: $0.title) }
             let service = AnthropicService(apiKey: apiKey)
             do {
-                aiResult = try await service.filterReminders(items)
+                let results = try await service.filterReminders(summaries)
+                // Map returned IDs back to ReminderItems (we're on MainActor here).
+                if !results.isEmpty {
+                    let idToReasoning = Dictionary(uniqueKeysWithValues: results.map { ($0.id, $0.reasoning) })
+                    var mapped: [ReminderItem] = []
+                    for result in results {
+                        if var item = items.first(where: { $0.id == result.id }) {
+                            item.aiReasoning = idToReasoning[result.id] ?? nil
+                            mapped.append(item)
+                        }
+                    }
+                    filteredItems = mapped.isEmpty ? nil : mapped
+                }
             } catch {
-                aiResult = nil
                 aiErrorMessage = error.localizedDescription
             }
-        } else {
-            aiResult = nil
         }
 
-        if let filtered = aiResult, !filtered.isEmpty {
+        if let filtered = filteredItems {
             session.filteredItems = filtered
             let count = filtered.count
             statusLine = "Claude identified \(count) key item\(count == 1 ? "" : "s"). Ready to compare!"
