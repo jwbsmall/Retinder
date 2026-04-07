@@ -146,7 +146,7 @@ struct PairwiseView: View {
             swipeHints
                 .padding(.top, 10)
 
-            Button("No preference") { engine.skip() }
+            Button("No preference (random)") { engine.skip() }
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .padding(.top, 8)
