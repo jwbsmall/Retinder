@@ -316,7 +316,7 @@ private struct ApplySheet: View {
 
 // MARK: - Reminder Edit Sheet
 
-private struct ReminderEditSheet: View {
+struct ReminderEditSheet: View {
 
     @EnvironmentObject private var remindersManager: RemindersManager
     @Environment(\.dismiss) private var dismiss
