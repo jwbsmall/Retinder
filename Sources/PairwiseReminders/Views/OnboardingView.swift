@@ -50,7 +50,7 @@ struct OnboardingView: View {
                         .textFieldStyle(.roundedBorder)
 
                     if showError {
-                        Label("Please enter a valid API key.", systemImage: "exclamationmark.circle.fill")
+                        Label("Enter a valid Anthropic key (starts with sk-ant-).", systemImage: "exclamationmark.circle.fill")
                             .font(.caption)
                             .foregroundStyle(.red)
                     } else {
@@ -93,7 +93,7 @@ struct OnboardingView: View {
 
     private func saveAndContinue() {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { showError = true; return }
+        guard trimmed.hasPrefix("sk-ant-") else { showError = true; return }
         if KeychainService.save(apiKey: trimmed) {
             onComplete()
         } else {

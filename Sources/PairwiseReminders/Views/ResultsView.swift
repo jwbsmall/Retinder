@@ -211,8 +211,8 @@ struct ApplyOptions {
         let cal = Calendar.current
         switch dueTarget {
         case .today:     return cal.startOfDay(for: .now)
-        case .tomorrow:  return cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: .now))!
-        case .nextWeek:  return cal.date(byAdding: .weekOfYear, value: 1, to: cal.startOfDay(for: .now))!
+        case .tomorrow:  return cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: .now)) ?? .now
+        case .nextWeek:  return cal.date(byAdding: .weekOfYear, value: 1, to: cal.startOfDay(for: .now)) ?? .now
         case .custom:    return cal.startOfDay(for: customDate)
         }
     }
