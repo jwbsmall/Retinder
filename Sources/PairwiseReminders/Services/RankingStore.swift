@@ -10,21 +10,20 @@ import Foundation
 /// Completed reminders (not returned by EventKit) simply won't appear.
 enum RankingStore {
 
-    private static let defaults = UserDefaults.standard
     private static let keyPrefix = "ranking_v1_"
 
     static func save(rankedItems: [ReminderItem], forLists listIDs: Set<String>) {
         let ids = rankedItems.map { $0.id }
-        defaults.set(ids, forKey: key(for: listIDs))
+        UserDefaults.standard.set(ids, forKey: key(for: listIDs))
     }
 
     /// Returns ordered calendarItemIdentifiers, or nil if no ranking is stored.
     static func load(forLists listIDs: Set<String>) -> [String]? {
-        defaults.stringArray(forKey: key(for: listIDs))
+        UserDefaults.standard.stringArray(forKey: key(for: listIDs))
     }
 
     static func clear(forLists listIDs: Set<String>) {
-        defaults.removeObject(forKey: key(for: listIDs))
+        UserDefaults.standard.removeObject(forKey: key(for: listIDs))
     }
 
     private static func key(for listIDs: Set<String>) -> String {
