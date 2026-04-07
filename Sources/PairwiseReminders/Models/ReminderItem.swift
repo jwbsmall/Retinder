@@ -23,6 +23,13 @@ struct ReminderItem: Identifiable, Equatable, @unchecked Sendable {
         self.ekReminder = ekReminder
     }
 
+    /// Internal init for unit tests — lets tests supply a stable ID without
+    /// a live EventKit store (unsaved EKReminders have empty identifiers).
+    init(id: String, ekReminder: EKReminder) {
+        self.id = id
+        self.ekReminder = ekReminder
+    }
+
     static func == (lhs: ReminderItem, rhs: ReminderItem) -> Bool {
         lhs.id == rhs.id
     }

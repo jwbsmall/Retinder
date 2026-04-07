@@ -22,10 +22,22 @@
 		AA0000000000000000000032 /* ResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000023 /* ResultsView.swift */; };
 		AA0000000000000000000033 /* EventKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000024 /* EventKit.framework */; };
 		AA0000000000000000000035 /* RankingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000034 /* RankingStore.swift */; };
+		AA0000000000000000000038 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000037 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		52AB990B2F84A59400F6766C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA0000000000000000000005;
+			remoteInfo = PairwiseReminders;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		AA0000000000000000000016 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA0000000000000000000037 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		AA0000000000000000000036 /* PairwiseReminders.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PairwiseReminders.entitlements; sourceTree = "<group>"; };
 		AA0000000000000000000017 /* PairwiseRemindersApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairwiseRemindersApp.swift; sourceTree = "<group>"; };
 		AA0000000000000000000018 /* ReminderItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderItem.swift; sourceTree = "<group>"; };
@@ -43,9 +55,21 @@
 		AA0000000000000000000024 /* EventKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = EventKit.framework; path = System/Library/Frameworks/EventKit.framework; sourceTree = SDKROOT; };
 		AA0000000000000000000034 /* RankingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RankingStore.swift; sourceTree = "<group>"; };
 		AA0000000000000000000025 /* PairwiseReminders.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PairwiseReminders.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		52AB99072F84A59400F6766C /* PairwiseRemindersTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PairwiseRemindersTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		52AB99082F84A59400F6766C /* PairwiseRemindersTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = PairwiseRemindersTests; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
 /* Begin PBXFrameworksBuildPhase section */
+		52AB99042F84A59400F6766C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AA000000000000000000000A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -64,6 +88,7 @@
 				AA000000000000000000000E /* Sources */,
 				AA0000000000000000000014 /* Frameworks */,
 				AA0000000000000000000015 /* Products */,
+				52AB99082F84A59400F6766C /* PairwiseRemindersTests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -72,6 +97,7 @@
 			children = (
 				AA0000000000000000000016 /* Info.plist */,
 				AA0000000000000000000036 /* PairwiseReminders.entitlements */,
+				AA0000000000000000000037 /* PrivacyInfo.xcprivacy */,
 			);
 			path = PairwiseReminders;
 			sourceTree = "<group>";
@@ -149,6 +175,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0000000000000000000025 /* PairwiseReminders.app */,
+				52AB99072F84A59400F6766C /* PairwiseRemindersTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -173,6 +200,29 @@
 			productReference = AA0000000000000000000025 /* PairwiseReminders.app */;
 			productType = "com.apple.product-type.application";
 		};
+		52AB99062F84A59400F6766C /* PairwiseRemindersTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 52AB990D2F84A59400F6766C /* Build configuration list for PBXNativeTarget "PairwiseRemindersTests" */;
+			buildPhases = (
+				52AB99032F84A59400F6766C /* Sources */,
+				52AB99042F84A59400F6766C /* Frameworks */,
+				52AB99052F84A59400F6766C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				52AB990C2F84A59400F6766C /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				52AB99082F84A59400F6766C /* PairwiseRemindersTests */,
+			);
+			name = PairwiseRemindersTests;
+			packageProductDependencies = (
+			);
+			productName = PairwiseRemindersTests;
+			productReference = 52AB99072F84A59400F6766C /* PairwiseRemindersTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -180,11 +230,15 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1500;
+				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					AA0000000000000000000005 = {
 						CreatedOnToolsVersion = 15.0;
+					};
+					52AB99062F84A59400F6766C = {
+						CreatedOnToolsVersion = 26.4;
+						TestTargetID = AA0000000000000000000005;
 					};
 				};
 			};
@@ -202,21 +256,37 @@
 			projectRoot = "";
 			targets = (
 				AA0000000000000000000005 /* PairwiseReminders */,
+				52AB99062F84A59400F6766C /* PairwiseRemindersTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		AA000000000000000000000B /* Resources */ = {
+		52AB99052F84A59400F6766C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA000000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000000000000000000038 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		52AB99032F84A59400F6766C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AA0000000000000000000009 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -239,6 +309,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		52AB990C2F84A59400F6766C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AA0000000000000000000005 /* PairwiseReminders */;
+			targetProxy = 52AB990B2F84A59400F6766C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		AA0000000000000000000003 /* Debug */ = {
@@ -377,6 +455,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.josmall.PairwiseReminders;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -399,8 +479,62 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.josmall.PairwiseReminders;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		52AB990E2F84A59400F6766C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 763BYZG6SP;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = idk.PairwiseRemindersTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PairwiseReminders.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PairwiseReminders";
+			};
+			name = Debug;
+		};
+		52AB990F2F84A59400F6766C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 763BYZG6SP;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = idk.PairwiseRemindersTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PairwiseReminders.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PairwiseReminders";
 			};
 			name = Release;
 		};
@@ -421,6 +555,15 @@
 			buildConfigurations = (
 				AA0000000000000000000007 /* Debug */,
 				AA0000000000000000000008 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		52AB990D2F84A59400F6766C /* Build configuration list for PBXNativeTarget "PairwiseRemindersTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				52AB990E2F84A59400F6766C /* Debug */,
+				52AB990F2F84A59400F6766C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
