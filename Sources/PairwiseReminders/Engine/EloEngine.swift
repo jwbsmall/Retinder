@@ -151,14 +151,10 @@ final class EloEngine: ObservableObject {
             }
         }
 
-        // If every pair has been shown, reset the seen set and try again.
+        // If every unique pair has been shown once, we're done for this session.
+        // One complete round gives a sound ordering; the user can run another session later.
         if candidates.isEmpty {
-            if isConverged {
-                // All pairs shown and fully settled — nothing left to do.
-                return
-            }
-            shownPairs.removeAll()
-            advanceToNextPair()
+            isConverged = true
             return
         }
 

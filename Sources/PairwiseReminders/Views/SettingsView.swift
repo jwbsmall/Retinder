@@ -5,6 +5,7 @@ import SwiftData
 struct SettingsView: View {
 
     @EnvironmentObject private var session: PairwiseSession
+    @EnvironmentObject private var remindersManager: RemindersManager
     @Environment(\.modelContext) private var modelContext
 
     @Query private var allConfigs: [ListConfig]
@@ -21,10 +22,10 @@ struct SettingsView: View {
             Form {
                 aiSection
                 writeBackSection
-                rankingSection
             }
             .navigationTitle("Settings")
             .onAppear { loadSettings() }
+            .task { await remindersManager.fetchLists() }
         }
     }
 
@@ -93,7 +94,10 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(importedConfigs) { config in
-                    NavigationLink(config.calendarIdentifier) {
+                    let title = remindersManager.lists
+                        .first { $0.calendarIdentifier == config.calendarIdentifier }?.title
+                        ?? "Unknown List"
+                    NavigationLink(title) {
                         WriteBackConfigView(config: config)
                     }
                 }
@@ -102,31 +106,6 @@ struct SettingsView: View {
             Text("Write-Back Rules")
         } footer: {
             Text("Configure how each list's ranking maps to Reminders priority, flags, and due dates.")
-        }
-    }
-
-    // MARK: - Ranking Section
-
-    private var rankingSection: some View {
-        Section {
-            if let config = importedConfigs.first {
-                // Global default staleness — shown as a representative setting.
-                Stepper(
-                    "Stale after \(config.stalenessThresholdDays) days",
-                    value: Binding(
-                        get: { config.stalenessThresholdDays },
-                        set: {
-                            config.stalenessThresholdDays = $0
-                            try? modelContext.save()
-                        }
-                    ),
-                    in: 1...90
-                )
-            }
-        } header: {
-            Text("Ranking")
-        } footer: {
-            Text("Lists whose rankings are older than the staleness threshold show a warning badge on the Home tab.")
         }
     }
 

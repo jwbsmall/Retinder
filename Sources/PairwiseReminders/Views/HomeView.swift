@@ -21,24 +21,17 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if importedConfigs.isEmpty {
+                if remindersManager.lists.isEmpty {
                     emptyState
                 } else {
                     listContent
                 }
             }
             .navigationTitle("Retinder")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink(destination: ListImportView()) {
-                        Image(systemName: "plus")
-                    }
-                }
-            }
             .navigationDestination(item: $selectedList) { calendar in
                 ListDetailView(calendar: calendar)
             }
-            .task { await remindersManager.fetchLists() }
+            .task { await remindersManager.syncWithEventKit(context: modelContext) }
         }
     }
 
@@ -46,8 +39,8 @@ struct HomeView: View {
 
     private var listContent: some View {
         List {
-            Section {
-                ForEach(importedCalendars, id: \.calendarIdentifier) { calendar in
+            Section("Your Lists") {
+                ForEach(remindersManager.lists, id: \.calendarIdentifier) { calendar in
                     ListRowView(
                         calendar: calendar,
                         records: records(for: calendar),
@@ -56,8 +49,6 @@ struct HomeView: View {
                     .contentShape(Rectangle())
                     .onTapGesture { selectedList = calendar }
                 }
-            } header: {
-                Text("Your Lists")
             }
         }
         .listStyle(.insetGrouped)
@@ -71,34 +62,25 @@ struct HomeView: View {
             Image(systemName: "list.bullet.clipboard")
                 .font(.system(size: 52))
                 .foregroundStyle(.secondary)
-            Text("No Lists Imported")
+            Text("No Reminders Lists")
                 .font(.title2.bold())
-            Text("Tap + to choose which Reminders lists to prioritise.")
+            Text("Your Reminders lists will appear here once access is granted.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
-            NavigationLink("Import Lists") {
-                ListImportView()
-            }
-            .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Helpers
 
-    private var importedCalendars: [EKCalendar] {
-        let ids = Set(importedConfigs.map(\.calendarIdentifier))
-        return remindersManager.lists.filter { ids.contains($0.calendarIdentifier) }
-    }
-
     private func records(for calendar: EKCalendar) -> [RankedItemRecord] {
         allRecords.filter { $0.listCalendarIdentifier == calendar.calendarIdentifier }
     }
 
     private func config(for calendar: EKCalendar) -> ListConfig? {
-        importedConfigs.first { $0.calendarIdentifier == calendar.calendarIdentifier }
+        allConfigs.first { $0.calendarIdentifier == calendar.calendarIdentifier }
     }
 }
 
