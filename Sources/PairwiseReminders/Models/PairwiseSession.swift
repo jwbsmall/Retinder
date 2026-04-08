@@ -141,10 +141,10 @@ final class PairwiseSession: ObservableObject {
         switch aiPreference {
         case .onDeviceFirst:
             seeds = await tryOnDeviceSeeding(summaries: summaries)
-                ?? (await tryAPISeeding(summaries: summaries))
+            if seeds == nil { seeds = await tryAPISeeding(summaries: summaries) }
         case .apiFirst:
             seeds = await tryAPISeeding(summaries: summaries)
-                ?? (await tryOnDeviceSeeding(summaries: summaries))
+            if seeds == nil { seeds = await tryOnDeviceSeeding(summaries: summaries) }
         case .none:
             break
         }
