@@ -62,11 +62,9 @@ final class RemindersManager: ObservableObject {
             }
         }
 
-        let ids = reminders.map(\.calendarItemIdentifier)
-        let descriptor = FetchDescriptor<RankedItemRecord>(
-            predicate: #Predicate { ids.contains($0.calendarItemIdentifier) }
-        )
-        let existingRecords = (try? context.fetch(descriptor)) ?? []
+        let idsSet = Set(reminders.map(\.calendarItemIdentifier))
+        let existingRecords = ((try? context.fetch(FetchDescriptor<RankedItemRecord>())) ?? [])
+            .filter { idsSet.contains($0.calendarItemIdentifier) }
         let recordsByID = Dictionary(uniqueKeysWithValues: existingRecords.map {
             ($0.calendarItemIdentifier, $0)
         })
@@ -92,10 +90,8 @@ final class RemindersManager: ObservableObject {
         await fetchLists()
 
         // Fetch all list configs to know which lists are imported.
-        let configDescriptor = FetchDescriptor<ListConfig>(
-            predicate: #Predicate { $0.isImported }
-        )
-        let importedConfigs = (try? context.fetch(configDescriptor)) ?? []
+        let importedConfigs = ((try? context.fetch(FetchDescriptor<ListConfig>())) ?? [])
+            .filter(\.isImported)
         guard !importedConfigs.isEmpty else { return }
 
         let importedListIDs = Set(importedConfigs.map(\.calendarIdentifier))
@@ -113,11 +109,8 @@ final class RemindersManager: ObservableObject {
         let liveIDs = Set(reminders.map(\.calendarItemIdentifier))
 
         // Fetch all tracked records for imported lists.
-        let listIDsArray = Array(importedListIDs)
-        let recordDescriptor = FetchDescriptor<RankedItemRecord>(
-            predicate: #Predicate { listIDsArray.contains($0.listCalendarIdentifier) }
-        )
-        let existingRecords = (try? context.fetch(recordDescriptor)) ?? []
+        let existingRecords = ((try? context.fetch(FetchDescriptor<RankedItemRecord>())) ?? [])
+            .filter { importedListIDs.contains($0.listCalendarIdentifier) }
         let trackedIDs = Set(existingRecords.map(\.calendarItemIdentifier))
 
         // Insert new reminders.

@@ -10,8 +10,9 @@ struct HomeView: View {
     @EnvironmentObject private var eloEngine: EloEngine
     @Environment(\.modelContext) private var modelContext
 
-    @Query(filter: #Predicate<ListConfig> { $0.isImported }, sort: \ListConfig.calendarIdentifier)
-    private var importedConfigs: [ListConfig]
+    @Query(sort: \ListConfig.calendarIdentifier)
+    private var allConfigs: [ListConfig]
+    private var importedConfigs: [ListConfig] { allConfigs.filter(\.isImported) }
 
     @Query private var allRecords: [RankedItemRecord]
 

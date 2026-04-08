@@ -194,11 +194,9 @@ final class EloEngine: ObservableObject {
     // MARK: - Persistence
 
     private func persist(context: ModelContext) {
-        let ids = items.map(\.id)
-        let descriptor = FetchDescriptor<RankedItemRecord>(
-            predicate: #Predicate { ids.contains($0.calendarItemIdentifier) }
-        )
-        let existing = (try? context.fetch(descriptor)) ?? []
+        let idsSet = Set(items.map(\.id))
+        let existing = ((try? context.fetch(FetchDescriptor<RankedItemRecord>())) ?? [])
+            .filter { idsSet.contains($0.calendarItemIdentifier) }
         let existingByID = Dictionary(uniqueKeysWithValues: existing.map { ($0.calendarItemIdentifier, $0) })
 
         let now = Date()

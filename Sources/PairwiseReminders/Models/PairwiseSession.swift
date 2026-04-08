@@ -177,11 +177,9 @@ final class PairwiseSession: ObservableObject {
         let total = seeds.count
         let seedByID = Dictionary(uniqueKeysWithValues: seeds.map { ($0.id, $0) })
 
-        let ids = sessionItems.map(\.id)
-        let descriptor = FetchDescriptor<RankedItemRecord>(
-            predicate: #Predicate { ids.contains($0.calendarItemIdentifier) }
-        )
-        let existing = (try? context.fetch(descriptor)) ?? []
+        let idsSet = Set(sessionItems.map(\.id))
+        let existing = ((try? context.fetch(FetchDescriptor<RankedItemRecord>())) ?? [])
+            .filter { idsSet.contains($0.calendarItemIdentifier) }
         let recordByID = Dictionary(uniqueKeysWithValues: existing.map { ($0.calendarItemIdentifier, $0) })
 
         for i in sessionItems.indices {
