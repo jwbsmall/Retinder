@@ -20,8 +20,15 @@ struct AnthropicService {
     struct ReminderSummary: Sendable {
         let id: String
         let title: String
-        let notes: String? = nil
-        let dueDateDescription: String? = nil
+        let notes: String?
+        let dueDateDescription: String?
+
+        init(id: String, title: String, notes: String? = nil, dueDateDescription: String? = nil) {
+            self.id = id
+            self.title = title
+            self.notes = notes
+            self.dueDateDescription = dueDateDescription
+        }
     }
 
     // MARK: - AI Seeding

@@ -52,3 +52,5 @@ import SwiftData
         self.aiConfidence = aiConfidence
     }
 }
+
+extension RankedItemRecord: @unchecked Sendable {}
