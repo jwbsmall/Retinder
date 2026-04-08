@@ -1,5 +1,6 @@
 import Foundation
 import EventKit
+import SwiftData
 
 /// Handles all EventKit interactions: requesting access, fetching reminders, writing priorities.
 @MainActor
@@ -35,8 +36,12 @@ final class RemindersManager: ObservableObject {
 
     // MARK: - Fetching
 
-    /// Fetches all incomplete reminders from the given list identifiers.
-    func fetchIncompleteReminders(from listIDs: Set<String>) async throws -> [ReminderItem] {
+    /// Fetches all incomplete reminders from the given list identifiers, loading
+    /// Elo ratings from SwiftData where available.
+    func fetchIncompleteReminders(
+        from listIDs: Set<String>,
+        context: ModelContext
+    ) async throws -> [ReminderItem] {
         let calendars = store.calendars(for: .reminder)
             .filter { listIDs.contains($0.calendarIdentifier) }
         guard !calendars.isEmpty else { return [] }
@@ -47,14 +52,98 @@ final class RemindersManager: ObservableObject {
             calendars: calendars
         )
 
-        return try await withCheckedThrowingContinuation { continuation in
+        let reminders: [EKReminder] = try await withCheckedThrowingContinuation { continuation in
             store.fetchReminders(matching: predicate) { reminders in
                 guard let reminders else {
                     continuation.resume(throwing: RemindersError.fetchFailed)
                     return
                 }
-                let items = reminders.map { ReminderItem(from: $0) }
-                continuation.resume(returning: items)
+                continuation.resume(returning: reminders)
+            }
+        }
+
+        let ids = reminders.map(\.calendarItemIdentifier)
+        let descriptor = FetchDescriptor<RankedItemRecord>(
+            predicate: #Predicate { ids.contains($0.calendarItemIdentifier) }
+        )
+        let existingRecords = (try? context.fetch(descriptor)) ?? []
+        let recordsByID = Dictionary(uniqueKeysWithValues: existingRecords.map {
+            ($0.calendarItemIdentifier, $0)
+        })
+
+        return reminders.map { reminder in
+            let record = recordsByID[reminder.calendarItemIdentifier]
+            return ReminderItem(
+                from: reminder,
+                eloRating: record?.eloRating ?? 1000.0,
+                kFactor: record?.kFactor ?? 32.0
+            )
+        }
+    }
+
+    // MARK: - Sync
+
+    /// Syncs SwiftData with the current state of EventKit for all imported lists.
+    /// - Inserts `RankedItemRecord` for reminders not yet tracked.
+    /// - Deletes records for reminders that no longer exist or are completed.
+    ///
+    /// Call on app launch and when returning to the foreground.
+    func syncWithEventKit(context: ModelContext) async {
+        await fetchLists()
+
+        // Fetch all list configs to know which lists are imported.
+        let configDescriptor = FetchDescriptor<ListConfig>(
+            predicate: #Predicate { $0.isImported }
+        )
+        let importedConfigs = (try? context.fetch(configDescriptor)) ?? []
+        guard !importedConfigs.isEmpty else { return }
+
+        let importedListIDs = Set(importedConfigs.map(\.calendarIdentifier))
+        let importedCalendars = lists.filter { importedListIDs.contains($0.calendarIdentifier) }
+        guard !importedCalendars.isEmpty else { return }
+
+        let predicate = store.predicateForIncompleteReminders(
+            withDueDateStarting: nil,
+            ending: nil,
+            calendars: importedCalendars
+        )
+
+        guard let reminders = await fetchRemindersAsync(matching: predicate) else { return }
+
+        let liveIDs = Set(reminders.map(\.calendarItemIdentifier))
+
+        // Fetch all tracked records for imported lists.
+        let listIDsArray = Array(importedListIDs)
+        let recordDescriptor = FetchDescriptor<RankedItemRecord>(
+            predicate: #Predicate { listIDsArray.contains($0.listCalendarIdentifier) }
+        )
+        let existingRecords = (try? context.fetch(recordDescriptor)) ?? []
+        let trackedIDs = Set(existingRecords.map(\.calendarItemIdentifier))
+
+        // Insert new reminders.
+        for reminder in reminders {
+            let rid = reminder.calendarItemIdentifier
+            guard !trackedIDs.contains(rid) else { continue }
+            let calID = reminder.calendar?.calendarIdentifier ?? ""
+            let record = RankedItemRecord(
+                calendarItemIdentifier: rid,
+                listCalendarIdentifier: calID
+            )
+            context.insert(record)
+        }
+
+        // Delete stale records (reminder was completed or deleted).
+        for record in existingRecords where !liveIDs.contains(record.calendarItemIdentifier) {
+            context.delete(record)
+        }
+
+        try? context.save()
+    }
+
+    private func fetchRemindersAsync(matching predicate: NSPredicate) async -> [EKReminder]? {
+        await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { reminders in
+                continuation.resume(returning: reminders)
             }
         }
     }
@@ -96,6 +185,29 @@ final class RemindersManager: ObservableObject {
             try store.save(item.ekReminder, commit: false)
         }
         try store.commit()
+    }
+
+    /// Sets a flag on the top `count` items and removes it from the rest, then commits.
+    func applyFlags(_ items: [ReminderItem], count: Int) throws {
+        guard !items.isEmpty, count > 0 else { return }
+        let n = min(count, items.count)
+        for (index, item) in items.enumerated() {
+            item.ekReminder.isCompleted = false  // ensure not accidentally completing
+            // EKReminder doesn't expose a flag property directly; use priority 1 as a proxy.
+            // iOS Reminders shows flagged items separately regardless of priority.
+            // The Reminders app's "flag" is stored as `isFlagged` on EKReminder in iOS 16+.
+            // Accessing it dynamically to avoid compile errors on older SDKs.
+            item.ekReminder.setValue(index < n, forKey: "isFlagged")
+            try store.save(item.ekReminder, commit: false)
+        }
+        try store.commit()
+    }
+
+    /// Marks the reminder as completed and commits.
+    func complete(_ item: ReminderItem) throws {
+        item.ekReminder.isCompleted = true
+        item.ekReminder.completionDate = Date()
+        try store.save(item.ekReminder, commit: true)
     }
 
     /// Updates a reminder's fields in-place and commits immediately.

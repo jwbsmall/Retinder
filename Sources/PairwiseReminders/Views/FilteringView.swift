@@ -1,19 +1,20 @@
 import SwiftUI
 
-/// Shows an animated loading state while the Anthropic API filters reminders.
-/// Transitions to `.comparing` on success.
+/// Shows an animated loading state while the AI seeds initial Elo rankings.
+/// This view is active while `PairwiseSession.phase == .seeding`.
+/// The session itself handles all seeding logic — this view is purely presentational.
 struct FilteringView: View {
 
     @EnvironmentObject private var session: PairwiseSession
-    @EnvironmentObject private var engine: PairwiseEngine
 
-    @State private var statusLine = "Sending your reminders to Claude…"
+    @State private var statusLine = "Getting ready…"
+    @State private var dotCount = 0
+    private let dotTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 36) {
             Spacer()
 
-            // Animated icon
             ZStack {
                 Circle()
                     .fill(.blue.opacity(0.1))
@@ -24,9 +25,8 @@ struct FilteringView: View {
                     .symbolEffect(.variableColor.iterative)
             }
 
-            // Status text
             VStack(spacing: 8) {
-                Text("Analysing Your Reminders")
+                Text("Ranking Your Reminders")
                     .font(.title2.bold())
 
                 Text(statusLine)
@@ -40,70 +40,29 @@ struct FilteringView: View {
                 .progressViewStyle(.circular)
                 .scaleEffect(1.4)
 
-
             Spacer()
         }
         .padding()
-        .task { await runFiltering() }
+        .onReceive(dotTimer) { _ in
+            updateStatus()
+        }
+        .onChange(of: session.phase) { _, newPhase in
+            // PairwiseSession advances phase to .comparing when done; nothing else needed here.
+            _ = newPhase
+        }
     }
 
-    // MARK: - Filtering Logic
+    private func updateStatus() {
+        let count = session.sessionItems.count
+        let dots = String(repeating: ".", count: (dotCount % 3) + 1)
+        dotCount += 1
 
-    @MainActor
-    private func runFiltering() async {
-        let items = session.allItems
-        statusLine = "Found \(items.count) reminder\(items.count == 1 ? "" : "s"). Asking Claude to identify the most important…"
-
-        // Attempt AI filtering. Any failure falls through to the fallback —
-        // the pairwise comparison always proceeds regardless of AI availability.
-        var aiErrorMessage: String?
-        var filteredItems: [ReminderItem]?
-
-        if let apiKey = KeychainService.load() {
-            // Extract Sendable summaries before crossing the actor boundary.
-            let summaries = items.map { AnthropicService.ReminderSummary(id: $0.id, title: $0.title) }
-            let service = AnthropicService(apiKey: apiKey)
-            do {
-                let results = try await service.filterReminders(summaries)
-                // Map returned IDs back to ReminderItems (we're on MainActor here).
-                if !results.isEmpty {
-                    let idToReasoning = Dictionary(uniqueKeysWithValues: results.map { ($0.id, $0.reasoning) })
-                    var mapped: [ReminderItem] = []
-                    for result in results {
-                        if var item = items.first(where: { $0.id == result.id }) {
-                            item.aiReasoning = idToReasoning[result.id] ?? nil
-                            mapped.append(item)
-                        }
-                    }
-                    filteredItems = mapped.isEmpty ? nil : mapped
-                }
-            } catch {
-                aiErrorMessage = error.localizedDescription
-            }
-        }
-
-        if let filtered = filteredItems {
-            session.filteredItems = filtered
-            let count = filtered.count
-            statusLine = "Claude identified \(count) key item\(count == 1 ? "" : "s"). Ready to compare!"
-            try? await Task.sleep(for: .milliseconds(900))
+        if count == 0 {
+            statusLine = "Fetching reminders\(dots)"
+        } else if session.aiPreference == .none {
+            statusLine = "Preparing \(count) item\(count == 1 ? "" : "s") for comparison\(dots)"
         } else {
-            // Fallback: cap at 20 items (random sample when there are more).
-            session.aiFilteringFailed = true
-            let fallback = items.count <= 20 ? items : Array(items.shuffled().prefix(20))
-            session.filteredItems = fallback
-            let count = fallback.count
-            if let error = aiErrorMessage {
-                statusLine = "AI filtering failed: \(error). Comparing \(count) item\(count == 1 ? "" : "s")."
-            } else if KeychainService.load() == nil {
-                statusLine = "No API key set — comparing \(count) item\(count == 1 ? "" : "s"). Add a key in settings to enable AI filtering."
-            } else {
-                statusLine = "AI filtering unavailable — comparing \(count) item\(count == 1 ? "" : "s")."
-            }
-            try? await Task.sleep(for: .milliseconds(600))
+            statusLine = "AI is ranking \(count) item\(count == 1 ? "" : "s")\(dots)"
         }
-
-        engine.reset()
-        session.phase = .comparing
     }
 }

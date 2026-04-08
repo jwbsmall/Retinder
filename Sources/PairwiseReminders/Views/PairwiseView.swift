@@ -1,16 +1,19 @@
 import SwiftUI
 
-/// Tinder-style swipe UI. The large bottom card is the active one — drag or tap it to pick it.
+/// Tinder-style swipe UI for Elo-based pairwise comparisons.
+///
+/// The large bottom card is the interactive one — drag or tap it to pick it.
 /// Tap the compact top card to pick it instead.
+/// "Done for now" is always safe — partial Elo rankings are valid.
 struct PairwiseView: View {
 
     @EnvironmentObject private var session: PairwiseSession
-    @EnvironmentObject private var engine: PairwiseEngine
+    @EnvironmentObject private var engine: EloEngine
+    @Environment(\.modelContext) private var modelContext
 
     @State private var dragOffset: CGSize = .zero
-    /// Randomly flipped each comparison so neither position is consistently "favoured".
+    /// Randomly flipped each comparison so neither position is consistently favoured.
     @State private var isFlipped: Bool = false
-    @State private var showCancelAlert = false
     @State private var editingItem: ReminderItem?
 
     private let swipeThreshold: CGFloat = 100
@@ -21,11 +24,13 @@ struct PairwiseView: View {
 
             if let pair = engine.currentPair {
                 swipeContent(pair)
-                    .id(engine.comparisonNumber)
+                    .id(engine.comparisonCount)
                     .transition(.asymmetric(
                         insertion: .push(from: .trailing).combined(with: .opacity),
                         removal:   .push(from: .leading).combined(with: .opacity)
                     ))
+            } else if engine.isConverged {
+                convergedState
             } else {
                 Spacer()
                 ProgressView("Thinking…")
@@ -34,36 +39,17 @@ struct PairwiseView: View {
                 Spacer()
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: engine.comparisonNumber)
-        .onChange(of: engine.comparisonNumber) { _, _ in
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: engine.comparisonCount)
+        .onChange(of: engine.comparisonCount) { _, _ in
             withAnimation(.spring(response: 0.3)) { dragOffset = .zero }
             isFlipped = Bool.random()
         }
-        .onAppear {
-            if !engine.isStarted {
-                engine.start(with: session.filteredItems)
-                isFlipped = Bool.random()
-            }
-        }
-        .onChange(of: engine.isComplete) { _, complete in
-            guard complete else { return }
-            var ranked = engine.sortedItems
-            for i in ranked.indices { ranked[i].sortRank = i }
-            session.rankedItems = ranked
-            session.phase = .results
-        }
-        .alert("Stop comparing?", isPresented: $showCancelAlert) {
-            Button("Keep going", role: .cancel) { }
-            Button("Stop", role: .destructive) {
-                engine.reset()
-                session.phase = .listPicking
-            }
-        } message: {
-            Text("Your comparison progress will be lost.")
+        .onChange(of: engine.isConverged) { _, converged in
+            if converged { session.finish(eloEngine: engine, context: modelContext) }
         }
         .sheet(item: $editingItem, onDismiss: {
-            let items = session.filteredItems
-            session.filteredItems = items
+            // Force a redraw so edits appear on the cards immediately.
+            let _ = session.sessionItems
         }) { item in
             ReminderEditSheet(item: item)
                 .presentationDetents([.large])
@@ -76,9 +62,11 @@ struct PairwiseView: View {
     private var headerBar: some View {
         VStack(spacing: 10) {
             HStack {
-                Button("Stop") { showCancelAlert = true }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Button("Done for now") {
+                    session.finish(eloEngine: engine, context: modelContext)
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
 
                 Spacer()
 
@@ -87,23 +75,29 @@ struct PairwiseView: View {
 
                 Spacer()
 
-                Text("\(engine.comparisonNumber)/\(engine.estimatedTotal)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+                Group {
+                    if engine.estimatedRemaining > 0 {
+                        Text("~\(engine.estimatedRemaining) left")
+                    } else {
+                        Text("Almost done")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
             }
             .padding(.horizontal)
             .padding(.top)
 
             ProgressView(
-                value: Double(engine.comparisonNumber),
-                total: Double(max(engine.estimatedTotal, 1))
+                value: Double(engine.comparisonCount),
+                total: Double(max(engine.comparisonCount + engine.estimatedRemaining, 1))
             )
             .tint(.blue)
             .padding(.horizontal)
 
-            if session.aiFilteringFailed {
-                Text("AI filtering unavailable — comparing all items")
+            if session.seedingFailed {
+                Text("AI seeding unavailable — using default ratings")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal)
@@ -111,10 +105,32 @@ struct PairwiseView: View {
         }
     }
 
+    // MARK: - Converged State
+
+    private var convergedState: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 52))
+                .foregroundStyle(.blue)
+            Text("Ranking settled!")
+                .font(.title2.bold())
+            Text("All items have been compared enough to produce a confident ranking.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Button("See Results") {
+                session.finish(eloEngine: engine, context: modelContext)
+            }
+            .buttonStyle(.borderedProminent)
+            Spacer()
+        }
+    }
+
     // MARK: - Swipe Layout
 
     private func swipeContent(_ pair: (ReminderItem, ReminderItem)) -> some View {
-        // Randomly assign top (compact) vs bottom (large interactive) each comparison.
         let topItem    = isFlipped ? pair.1 : pair.0
         let bottomItem = isFlipped ? pair.0 : pair.1
 
@@ -146,10 +162,20 @@ struct PairwiseView: View {
             swipeHints
                 .padding(.top, 10)
 
-            Button("No preference (random)") { engine.skip() }
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .padding(.top, 8)
+            HStack(spacing: 20) {
+                Button("About equal") { engine.equal() }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("·")
+                    .foregroundStyle(.tertiary)
+                    .font(.caption)
+
+                Button("Skip") { engine.skip() }
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.top, 8)
 
             Spacer(minLength: 20)
         }

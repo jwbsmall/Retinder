@@ -1,64 +1,212 @@
 import Foundation
+import EventKit
+import SwiftData
 
-/// Central state for a single prioritisation session.
-/// All mutations happen on the MainActor to keep UI updates safe.
+/// Session-level state for a single pairwise ranking run on one or more lists.
+///
+/// Lifecycle:
+///   idle → seeding → comparing → done
+///
+/// `PrioritiseTab` observes this object to navigate between
+/// FilteringView → PairwiseView → ResultsView (session summary).
 @MainActor
 final class PairwiseSession: ObservableObject {
 
-    enum Phase {
-        case listPicking
-        case filtering
+    // MARK: - Phase
+
+    enum Phase: Equatable {
+        case idle
+        case seeding
         case comparing
-        case results
+        case done
     }
 
-    @Published var phase: Phase = .listPicking
+    @Published private(set) var phase: Phase = .idle
 
-    /// Reminder list identifiers the user chose to prioritise.
-    @Published var selectedListIDs: Set<String> = []
+    // MARK: - Session Data
 
-    /// All incomplete reminders fetched from selected lists.
-    @Published var allItems: [ReminderItem] = []
+    /// List identifiers included in the active session.
+    @Published private(set) var selectedListIDs: Set<String> = []
 
-    /// AI shortlist (~15 most decision-worthy items).
-    @Published var filteredItems: [ReminderItem] = []
+    /// All items fetched for the active session (across all selected lists).
+    @Published private(set) var sessionItems: [ReminderItem] = []
 
-    /// Final ranked list after pairwise comparisons, index 0 = highest priority.
-    @Published var rankedItems: [ReminderItem] = []
+    /// Items sorted by Elo after the session finishes (index 0 = highest priority).
+    @Published private(set) var rankedItems: [ReminderItem] = []
 
-    /// Non-nil when the filtering step failed.
-    @Published var filteringError: String?
+    // MARK: - Seeding Status
 
-    /// True when the AI filtering API call failed and we fell back to all items.
-    @Published var aiFilteringFailed = false
+    /// True when no AI backend was available or seeding failed — Elo ratings start at default 1000.
+    @Published private(set) var seedingFailed: Bool = false
+    @Published var seedingError: String?
 
-    /// Non-nil when writing priorities back to Reminders failed.
-    @Published var applyError: String?
+    // MARK: - AI Preference
 
-    /// True once priorities have been successfully written back.
-    @Published var didApply = false
+    /// Which AI backend to prefer for seeding. Persisted via UserDefaults.
+    enum AIPreference: String, CaseIterable {
+        case onDeviceFirst = "on_device_first"
+        case apiFirst = "api_first"
+        case none = "none"
 
-    /// Reconstructs `rankedItems` from a stored order of calendarItemIdentifiers.
-    /// Items no longer present (completed, deleted) are dropped.
-    /// Items not in the stored order (newly added) are appended at the end.
-    func applyStoredRanking(_ storedIDs: [String]) {
-        let itemsByID = Dictionary(uniqueKeysWithValues: allItems.map { ($0.id, $0) })
-        var ranked = storedIDs.compactMap { itemsByID[$0] }
-        let seen = Set(storedIDs)
-        ranked.append(contentsOf: allItems.filter { !seen.contains($0.id) })
-        for i in ranked.indices { ranked[i].sortRank = i }
-        rankedItems = ranked
+        var displayName: String {
+            switch self {
+            case .onDeviceFirst: return "On-device first"
+            case .apiFirst: return "Anthropic API first"
+            case .none: return "No AI seeding"
+            }
+        }
     }
 
-    func reset() {
-        phase = .listPicking
-        selectedListIDs = []
-        allItems = []
-        filteredItems = []
+    var aiPreference: AIPreference {
+        get {
+            AIPreference(rawValue: UserDefaults.standard.string(forKey: "ai_preference") ?? "") ?? .onDeviceFirst
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "ai_preference")
+        }
+    }
+
+    // MARK: - Starting a Session
+
+    /// Begins a session for the given lists. Fetches items, runs AI seeding, then
+    /// transitions to `.comparing`.
+    func start(
+        listIDs: Set<String>,
+        remindersManager: RemindersManager,
+        eloEngine: EloEngine,
+        context: ModelContext
+    ) async {
+        selectedListIDs = listIDs
+        sessionItems = []
         rankedItems = []
-        filteringError = nil
-        applyError = nil
-        didApply = false
-        aiFilteringFailed = false
+        seedingFailed = false
+        seedingError = nil
+        eloEngine.reset()
+        phase = .seeding
+
+        // 1. Fetch items with Elo ratings loaded from SwiftData.
+        do {
+            sessionItems = try await remindersManager.fetchIncompleteReminders(
+                from: listIDs, context: context
+            )
+        } catch {
+            phase = .idle
+            return
+        }
+
+        guard !sessionItems.isEmpty else {
+            phase = .idle
+            return
+        }
+
+        // 2. Attempt AI seeding to set initial Elo ratings.
+        await runSeeding(context: context)
+
+        // 3. Start the Elo engine with (possibly seeded) items.
+        eloEngine.start(with: sessionItems)
+        phase = .comparing
+    }
+
+    /// Called by PairwiseView when the user taps "Done for now" or the engine converges.
+    func finish(eloEngine: EloEngine, context: ModelContext) {
+        rankedItems = eloEngine.finish(context: context)
+        phase = .done
+    }
+
+    /// Resets all session state back to idle.
+    func reset(eloEngine: EloEngine) {
+        eloEngine.reset()
+        phase = .idle
+        selectedListIDs = []
+        sessionItems = []
+        rankedItems = []
+        seedingFailed = false
+        seedingError = nil
+    }
+
+    // MARK: - Private Seeding
+
+    private func runSeeding(context: ModelContext) async {
+        let summaries = sessionItems.map { item in
+            AnthropicService.ReminderSummary(
+                id: item.id,
+                title: item.title,
+                notes: item.notes,
+                dueDateDescription: item.dueDate.map { formatDate($0) }
+            )
+        }
+
+        var seeds: [AnthropicService.SeededRank]?
+
+        switch aiPreference {
+        case .onDeviceFirst:
+            seeds = await tryOnDeviceSeeding(summaries: summaries)
+                ?? (await tryAPISeeding(summaries: summaries))
+        case .apiFirst:
+            seeds = await tryAPISeeding(summaries: summaries)
+                ?? (await tryOnDeviceSeeding(summaries: summaries))
+        case .none:
+            break
+        }
+
+        guard let seeds, !seeds.isEmpty else {
+            seedingFailed = true
+            return
+        }
+
+        applySeedRatings(seeds, context: context)
+    }
+
+    private func tryOnDeviceSeeding(
+        summaries: [AnthropicService.ReminderSummary]
+    ) async -> [AnthropicService.SeededRank]? {
+        guard FoundationModelService.isAvailable else { return nil }
+        return try? await FoundationModelService().seedRanking(summaries)
+    }
+
+    private func tryAPISeeding(
+        summaries: [AnthropicService.ReminderSummary]
+    ) async -> [AnthropicService.SeededRank]? {
+        guard let apiKey = KeychainService.load(), !apiKey.isEmpty else { return nil }
+        return try? await AnthropicService(apiKey: apiKey).seedRanking(summaries)
+    }
+
+    /// Maps AI seed ranks and confidence scores into initial Elo ratings and K-factors,
+    /// updates `sessionItems` in place, and persists the new values to SwiftData.
+    private func applySeedRatings(_ seeds: [AnthropicService.SeededRank], context: ModelContext) {
+        let total = seeds.count
+        let seedByID = Dictionary(uniqueKeysWithValues: seeds.map { ($0.id, $0) })
+
+        let ids = sessionItems.map(\.id)
+        let descriptor = FetchDescriptor<RankedItemRecord>(
+            predicate: #Predicate { ids.contains($0.calendarItemIdentifier) }
+        )
+        let existing = (try? context.fetch(descriptor)) ?? []
+        let recordByID = Dictionary(uniqueKeysWithValues: existing.map { ($0.calendarItemIdentifier, $0) })
+
+        for i in sessionItems.indices {
+            let item = sessionItems[i]
+            guard let seed = seedByID[item.id] else { continue }
+
+            // Rank 1 → highest Elo. Spread items by 20 Elo points per rank step.
+            let elo = 1000.0 + Double(total - seed.rank) * 20.0
+            // Lower confidence → higher K → easier for user to move this item.
+            let k = max(8.0, 32.0 * (1.0 - Double(seed.confidence) / 100.0))
+
+            sessionItems[i].eloRating = elo
+            sessionItems[i].kFactor = k
+
+            if let record = recordByID[item.id] {
+                record.eloRating = elo
+                record.kFactor = k
+                record.aiSeedRank = seed.rank
+                record.aiConfidence = seed.confidence
+            }
+        }
+        try? context.save()
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        date.formatted(.dateTime.day().month().year())
     }
 }
