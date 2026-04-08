@@ -67,3 +67,5 @@ import SwiftData
         self.autoWriteBack = autoWriteBack
     }
 }
+
+extension ListConfig: @unchecked Sendable {}
