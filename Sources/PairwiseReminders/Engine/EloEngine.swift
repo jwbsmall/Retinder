@@ -40,9 +40,6 @@ final class EloEngine: ObservableObject {
 
     private var items: [ReminderItem] = []
 
-    /// Pairs already shown this session — avoids repeating the same matchup.
-    private var shownPairs: Set<String> = []
-
     // MARK: - Public Interface
 
     /// Initialises the engine with items, loading their Elo ratings from SwiftData.
@@ -51,7 +48,6 @@ final class EloEngine: ObservableObject {
         guard !isStarted else { return }
         isStarted = true
         comparisonCount = 0
-        shownPairs = []
         self.items = items
         updateConvergence()
         advanceToNextPair()
@@ -72,6 +68,13 @@ final class EloEngine: ObservableObject {
     func equal() {
         guard let pair = currentPair else { return }
         applyEloUpdate(winner: pair.0.id, loser: pair.1.id, outcome: 0.5)
+        // Force a small spread if ratings are still too close — prevents zero-delta re-selection.
+        if let wi = items.firstIndex(where: { $0.id == pair.0.id }),
+           let li = items.firstIndex(where: { $0.id == pair.1.id }),
+           abs(items[wi].eloRating - items[li].eloRating) < 50.0 {
+            items[wi].eloRating += 25.0
+            items[li].eloRating -= 25.0
+        }
         comparisonCount += 1
         updateConvergence()
         advanceToNextPair()
@@ -95,7 +98,6 @@ final class EloEngine: ObservableObject {
     /// Resets all engine state so it can be reused.
     func reset() {
         items = []
-        shownPairs = []
         currentPair = nil
         comparisonCount = 0
         estimatedRemaining = 0
@@ -130,9 +132,8 @@ final class EloEngine: ObservableObject {
 
     // MARK: - Pair Selection
 
-    /// Picks the next pair to show: the unseen matchup with the smallest rating gap
-    /// (most uncertain relative ordering). If all pairs have been shown, loops back
-    /// to the closest-rated unseen pair from the full set.
+    /// Picks the next pair to show: the matchup with the smallest rating gap among
+    /// all uncertain pairs (gap < 50). Converges when no uncertain pairs remain.
     private func advanceToNextPair() {
         currentPair = nil
         guard items.count >= 2 else {
@@ -140,34 +141,26 @@ final class EloEngine: ObservableObject {
             return
         }
 
-        // Build all candidate pairs not yet shown this session.
-        var candidates: [(Int, Int, Double)] = []
+        // Find the most uncertain pair: smallest gap below the convergence threshold.
+        let threshold = 50.0
+        var bestI = -1, bestJ = -1, bestGap = Double.infinity
         for i in items.indices {
             for j in (i + 1)..<items.count {
-                let key = pairKey(items[i].id, items[j].id)
-                guard !shownPairs.contains(key) else { continue }
                 let gap = abs(items[i].eloRating - items[j].eloRating)
-                candidates.append((i, j, gap))
+                if gap < threshold && gap < bestGap {
+                    bestGap = gap
+                    bestI = i
+                    bestJ = j
+                }
             }
         }
 
-        // If every unique pair has been shown once, we're done for this session.
-        // One complete round gives a sound ordering; the user can run another session later.
-        if candidates.isEmpty {
+        guard bestI >= 0 else {
             isConverged = true
             return
         }
 
-        // Pick the pair with the smallest gap (most uncertain).
-        candidates.sort { $0.2 < $1.2 }
-        let best = candidates[0]
-        let key = pairKey(items[best.0].id, items[best.1].id)
-        shownPairs.insert(key)
-        currentPair = (items[best.0], items[best.1])
-    }
-
-    private func pairKey(_ a: String, _ b: String) -> String {
-        a < b ? "\(a)||\(b)" : "\(b)||\(a)"
+        currentPair = (items[bestI], items[bestJ])
     }
 
     // MARK: - Convergence

@@ -10,10 +10,6 @@ struct HomeView: View {
     @EnvironmentObject private var eloEngine: EloEngine
     @Environment(\.modelContext) private var modelContext
 
-    @Query(sort: \ListConfig.calendarIdentifier)
-    private var allConfigs: [ListConfig]
-    private var importedConfigs: [ListConfig] { allConfigs.filter(\.isImported) }
-
     @Query private var allRecords: [RankedItemRecord]
 
     @State private var selectedList: EKCalendar?
@@ -43,8 +39,7 @@ struct HomeView: View {
                 ForEach(remindersManager.lists, id: \.calendarIdentifier) { calendar in
                     ListRowView(
                         calendar: calendar,
-                        records: records(for: calendar),
-                        config: config(for: calendar)
+                        records: records(for: calendar)
                     )
                     .contentShape(Rectangle())
                     .onTapGesture { selectedList = calendar }
@@ -78,10 +73,6 @@ struct HomeView: View {
     private func records(for calendar: EKCalendar) -> [RankedItemRecord] {
         allRecords.filter { $0.listCalendarIdentifier == calendar.calendarIdentifier }
     }
-
-    private func config(for calendar: EKCalendar) -> ListConfig? {
-        allConfigs.first { $0.calendarIdentifier == calendar.calendarIdentifier }
-    }
 }
 
 // MARK: - List Row
@@ -89,7 +80,6 @@ struct HomeView: View {
 private struct ListRowView: View {
     let calendar: EKCalendar
     let records: [RankedItemRecord]
-    let config: ListConfig?
 
     private var rankedCount: Int { records.filter { $0.comparisonCount > 0 }.count }
     private var totalCount: Int { records.count }
@@ -99,8 +89,9 @@ private struct ListRowView: View {
     }
 
     private var isStale: Bool {
-        guard let config, let last = stalenessDate else { return false }
-        let threshold = TimeInterval(config.stalenessThresholdDays * 86400)
+        guard let last = stalenessDate else { return false }
+        let days = UserDefaults.standard.integer(forKey: "staleness_threshold_days")
+        let threshold = TimeInterval((days > 0 ? days : 14) * 86400)
         return Date().timeIntervalSince(last) > threshold
     }
 
@@ -157,45 +148,3 @@ private struct ListRowView: View {
     }
 }
 
-// MARK: - List Import View
-
-/// Lets the user toggle which Reminders lists to import for ranking.
-struct ListImportView: View {
-
-    @EnvironmentObject private var remindersManager: RemindersManager
-    @Environment(\.modelContext) private var modelContext
-
-    @Query private var allConfigs: [ListConfig]
-
-    var body: some View {
-        List(remindersManager.lists, id: \.calendarIdentifier) { calendar in
-            let config = allConfigs.first { $0.calendarIdentifier == calendar.calendarIdentifier }
-            let isImported = config?.isImported ?? false
-            HStack {
-                Circle()
-                    .fill(Color(cgColor: calendar.cgColor))
-                    .frame(width: 12, height: 12)
-                Text(calendar.title)
-                Spacer()
-                if isImported {
-                    Image(systemName: "checkmark")
-                        .foregroundStyle(.blue)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { toggle(calendar: calendar, currentConfig: config) }
-        }
-        .navigationTitle("Import Lists")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func toggle(calendar: EKCalendar, currentConfig: ListConfig?) {
-        if let config = currentConfig {
-            config.isImported.toggle()
-        } else {
-            let config = ListConfig(calendarIdentifier: calendar.calendarIdentifier, isImported: true)
-            modelContext.insert(config)
-        }
-        try? modelContext.save()
-    }
-}

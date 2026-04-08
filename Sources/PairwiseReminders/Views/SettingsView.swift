@@ -9,19 +9,20 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
 
     @Query private var allConfigs: [ListConfig]
-    private var importedConfigs: [ListConfig] { allConfigs.filter(\.isImported) }
 
     @State private var apiKey: String = ""
     @State private var apiKeyMasked = true
     @State private var apiKeySaved = false
     @State private var useOnDeviceModel: Bool = FoundationModelService.isAvailable
     @State private var aiPreference: PairwiseSession.AIPreference = .onDeviceFirst
+    @State private var stalenessThresholdDays: Int = 14
 
     var body: some View {
         NavigationStack {
             Form {
                 aiSection
                 writeBackSection
+                rankingSection
             }
             .navigationTitle("Settings")
             .onAppear { loadSettings() }
@@ -88,12 +89,12 @@ struct SettingsView: View {
 
     private var writeBackSection: some View {
         Section {
-            if importedConfigs.isEmpty {
-                Text("Import lists in the Home tab to configure write-back rules.")
+            if allConfigs.isEmpty {
+                Text("Your Reminders lists will appear here once the app syncs.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(importedConfigs) { config in
+                ForEach(allConfigs) { config in
                     let title = remindersManager.lists
                         .first { $0.calendarIdentifier == config.calendarIdentifier }?.title
                         ?? "Unknown List"
@@ -109,6 +110,25 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Ranking Section
+
+    private var rankingSection: some View {
+        Section {
+            Stepper(
+                "Stale after \(stalenessThresholdDays) days",
+                value: $stalenessThresholdDays,
+                in: 1...90
+            )
+            .onChange(of: stalenessThresholdDays) { _, v in
+                UserDefaults.standard.set(v, forKey: "staleness_threshold_days")
+            }
+        } header: {
+            Text("Ranking")
+        } footer: {
+            Text("Lists are flagged as stale when their last comparison is older than this threshold.")
+        }
+    }
+
     // MARK: - Persistence
 
     private func loadSettings() {
@@ -116,6 +136,8 @@ struct SettingsView: View {
         aiPreference = session.aiPreference
         useOnDeviceModel = FoundationModelService.isAvailable
             && UserDefaults.standard.bool(forKey: "use_on_device_model")
+        let stored = UserDefaults.standard.integer(forKey: "staleness_threshold_days")
+        stalenessThresholdDays = stored > 0 ? stored : 14
     }
 
     private func saveAPIKey() {
@@ -179,14 +201,6 @@ private struct WriteBackConfigView: View {
             Section("Trigger") {
                 Toggle("Auto write-back on ranking change", isOn: $config.autoWriteBack)
             }
-
-            Section("Staleness") {
-                Stepper(
-                    "Stale after \(config.stalenessThresholdDays) days",
-                    value: $config.stalenessThresholdDays,
-                    in: 1...90
-                )
-            }
         }
         .navigationTitle("Write-Back")
         .navigationBarTitleDisplayMode(.inline)
@@ -196,7 +210,6 @@ private struct WriteBackConfigView: View {
         .onChange(of: config.dueDateTopN)           { _, _ in save() }
         .onChange(of: config.dueDateTarget)         { _, _ in save() }
         .onChange(of: config.autoWriteBack)         { _, _ in save() }
-        .onChange(of: config.stalenessThresholdDays) { _, _ in save() }
     }
 
     private func save() {

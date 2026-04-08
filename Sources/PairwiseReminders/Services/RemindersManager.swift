@@ -100,7 +100,7 @@ final class RemindersManager: ObservableObject {
         let allConfigs = (try? context.fetch(FetchDescriptor<ListConfig>())) ?? []
         let configuredIDs = Set(allConfigs.map(\.calendarIdentifier))
         for calendar in lists where !configuredIDs.contains(calendar.calendarIdentifier) {
-            context.insert(ListConfig(calendarIdentifier: calendar.calendarIdentifier, isImported: true))
+            context.insert(ListConfig(calendarIdentifier: calendar.calendarIdentifier))
         }
         try? context.save()
 

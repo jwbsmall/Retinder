@@ -1,18 +1,11 @@
 import Foundation
 import SwiftData
 
-/// Persists per-list configuration: which lists are imported and how rankings write back
-/// to Apple Reminders fields. One record per EKCalendar the user has opted in.
+/// Persists per-list write-back configuration. One record per EKCalendar, auto-created on first sync.
 @Model final class ListConfig {
 
     /// EKCalendar.calendarIdentifier.
     var calendarIdentifier: String
-
-    /// Whether the user has imported this list for ranking.
-    var isImported: Bool
-
-    /// Rankings older than this many days are considered stale and shown with a warning.
-    var stalenessThresholdDays: Int
 
     // MARK: - Write-Back: Flags
 
@@ -47,8 +40,6 @@ import SwiftData
 
     init(
         calendarIdentifier: String,
-        isImported: Bool = false,
-        stalenessThresholdDays: Int = 14,
         flagTopN: Int = 0,
         priorityMode: String = "none",
         priorityTopN: Int = 3,
@@ -57,8 +48,6 @@ import SwiftData
         autoWriteBack: Bool = false
     ) {
         self.calendarIdentifier = calendarIdentifier
-        self.isImported = isImported
-        self.stalenessThresholdDays = stalenessThresholdDays
         self.flagTopN = flagTopN
         self.priorityMode = priorityMode
         self.priorityTopN = priorityTopN
