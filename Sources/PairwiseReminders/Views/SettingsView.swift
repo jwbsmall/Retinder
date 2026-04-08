@@ -7,8 +7,8 @@ struct SettingsView: View {
     @EnvironmentObject private var session: PairwiseSession
     @Environment(\.modelContext) private var modelContext
 
-    @Query(filter: #Predicate<ListConfig> { $0.isImported })
-    private var importedConfigs: [ListConfig]
+    @Query private var allConfigs: [ListConfig]
+    private var importedConfigs: [ListConfig] { allConfigs.filter(\.isImported) }
 
     @State private var apiKey: String = ""
     @State private var apiKeyMasked = true

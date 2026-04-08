@@ -21,12 +21,9 @@ struct ListDetailView: View {
     @State private var applyError: String?
 
     private var config: ListConfig? {
-        // Fetch on demand — not using @Query here to avoid binding the view to a specific predicate.
         let id = calendar.calendarIdentifier
-        let descriptor = FetchDescriptor<ListConfig>(
-            predicate: #Predicate { $0.calendarIdentifier == id }
-        )
-        return try? modelContext.fetch(descriptor).first
+        return ((try? modelContext.fetch(FetchDescriptor<ListConfig>())) ?? [])
+            .first { $0.calendarIdentifier == id }
     }
 
     private var rankedItems: [ReminderItem] {
@@ -232,10 +229,9 @@ struct ListDetailView: View {
 
             // Persist
             let id = item.id
-            let descriptor = FetchDescriptor<RankedItemRecord>(
-                predicate: #Predicate { $0.calendarItemIdentifier == id }
-            )
-            if let record = try? modelContext.fetch(descriptor).first {
+            let record = ((try? modelContext.fetch(FetchDescriptor<RankedItemRecord>())) ?? [])
+                .first { $0.calendarItemIdentifier == id }
+            if let record {
                 record.eloRating = newRating
                 try? modelContext.save()
             }
@@ -244,10 +240,8 @@ struct ListDetailView: View {
 
     private func hasRecord(_ item: ReminderItem) -> Bool {
         let id = item.id
-        let descriptor = FetchDescriptor<RankedItemRecord>(
-            predicate: #Predicate { $0.calendarItemIdentifier == id }
-        )
-        return (try? modelContext.fetch(descriptor).first) != nil
+        return ((try? modelContext.fetch(FetchDescriptor<RankedItemRecord>())) ?? [])
+            .contains { $0.calendarItemIdentifier == id }
     }
 }
 
