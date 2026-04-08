@@ -2,6 +2,11 @@ import Foundation
 @preconcurrency import EventKit
 import SwiftData
 
+// EKReminder and EKCalendar are ObjC classes with no Sendable annotation.
+// We always access them on the main actor, so this is safe.
+extension EKReminder: @unchecked Sendable {}
+extension EKCalendar: @unchecked Sendable {}
+
 /// Handles all EventKit interactions: requesting access, fetching reminders, writing priorities.
 @MainActor
 final class RemindersManager: ObservableObject {
