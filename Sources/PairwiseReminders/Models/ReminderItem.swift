@@ -18,16 +18,26 @@ struct ReminderItem: Identifiable, Equatable, @unchecked Sendable {
     /// Position in the final sorted order (0 = highest priority).
     var sortRank: Int?
 
-    init(from ekReminder: EKReminder) {
+    /// Elo rating loaded from SwiftData. Higher = higher priority. Starts at 1000.
+    var eloRating: Double
+
+    /// Current K-factor loaded from SwiftData. Reflects how movable the rating is.
+    var kFactor: Double
+
+    init(from ekReminder: EKReminder, eloRating: Double = 1000.0, kFactor: Double = 32.0) {
         self.id = ekReminder.calendarItemIdentifier
         self.ekReminder = ekReminder
+        self.eloRating = eloRating
+        self.kFactor = kFactor
     }
 
     /// Internal init for unit tests — lets tests supply a stable ID without
     /// a live EventKit store (unsaved EKReminders have empty identifiers).
-    init(id: String, ekReminder: EKReminder) {
+    init(id: String, ekReminder: EKReminder, eloRating: Double = 1000.0, kFactor: Double = 32.0) {
         self.id = id
         self.ekReminder = ekReminder
+        self.eloRating = eloRating
+        self.kFactor = kFactor
     }
 
     static func == (lhs: ReminderItem, rhs: ReminderItem) -> Bool {

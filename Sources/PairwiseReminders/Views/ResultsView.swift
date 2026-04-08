@@ -1,202 +1,198 @@
 import SwiftUI
 
-/// Shows the final ranked list and lets the user write priorities back to Reminders.
+/// Session summary shown after the Elo comparison finishes ("Done for now" or convergence).
+/// Displays the ranked list and lets the user write results back to Reminders,
+/// then returns to idle so the Prioritise tab resets.
 struct ResultsView: View {
 
     @EnvironmentObject private var session: PairwiseSession
     @EnvironmentObject private var remindersManager: RemindersManager
-    @EnvironmentObject private var engine: PairwiseEngine
+    @EnvironmentObject private var eloEngine: EloEngine
 
     @State private var showApplySheet = false
-    @State private var showSuccessBanner = false
-    @State private var isApplying = false
-    @State private var showStartOverAlert = false
+    @State private var applyError: String?
+    @State private var applied = false
     @State private var editingItem: ReminderItem?
-    @Environment(\.editMode) private var editMode
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                if showSuccessBanner {
-                    successBanner
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
-                rankedList
-
-                if let error = session.applyError {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal)
-                        .padding(.top, 4)
-                }
-
-                bottomBar
+        VStack(spacing: 0) {
+            header
+            rankedList
+            bottomBar
+        }
+        .navigationTitle("Session Results")
+        .navigationBarTitleDisplayMode(.large)
+        .navigationBarBackButtonHidden(true)
+        .sheet(isPresented: $showApplySheet) {
+            ApplySheet(items: session.rankedItems) { options in
+                applyOptions(options)
+                showApplySheet = false
             }
-            .navigationTitle("Your Priorities")
-            .navigationBarTitleDisplayMode(.large)
-            .sheet(isPresented: $showApplySheet) {
-                ApplySheet(itemCount: session.rankedItems.count, isApplying: isApplying) { options in
-                    applyOptions(options)
-                }
-                .presentationDetents([.medium, .large])
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $editingItem) { item in
+            ReminderEditSheet(item: item)
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
-            }
-            .sheet(item: $editingItem, onDismiss: {
-                // Force SwiftUI to re-read computed properties after ekReminder mutation
-                let items = session.rankedItems
-                session.rankedItems = items
-            }) { item in
-                ReminderEditSheet(item: item)
-                    .presentationDetents([.large])
-                    .presentationDragIndicator(.visible)
-            }
         }
-        .onAppear {
-            // Auto-save ranking as soon as results appear, even if user never taps Apply.
-            RankingStore.save(rankedItems: session.rankedItems, forLists: session.selectedListIDs)
+        .alert("Write-back failed", isPresented: .constant(applyError != nil)) {
+            Button("OK") { applyError = nil }
+        } message: {
+            Text(applyError ?? "")
         }
     }
 
-    // MARK: - Sub-views
+    // MARK: - Header
 
-    private var successBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-            Text("Applied to Reminders!")
-                .font(.subheadline.bold())
-            Spacer()
+    private var header: some View {
+        VStack(spacing: 6) {
+            if session.seedingFailed {
+                Label("AI seeding was unavailable", systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 8)
+            }
+            if applied {
+                Label("Applied to Reminders!", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.green)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.green.opacity(0.1))
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
-        .padding()
-        .background(Color.green.opacity(0.12))
+        .animation(.spring(response: 0.4), value: applied)
     }
+
+    // MARK: - Ranked List
 
     private var rankedList: some View {
         List {
-            ForEach(session.rankedItems) { item in
-                RankedRow(
-                    item: item,
-                    rank: (session.rankedItems.firstIndex(of: item) ?? 0) + 1,
-                    total: session.rankedItems.count
-                )
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    guard editMode?.wrappedValue != .active else { return }
-                    editingItem = item
-                }
+            ForEach(Array(session.rankedItems.enumerated()), id: \.element.id) { index, item in
+                SessionRankedRow(item: item, rank: index + 1, total: session.rankedItems.count)
+                    .onTapGesture { editingItem = item }
             }
-            .onMove(perform: moveItems)
         }
         .listStyle(.insetGrouped)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { EditButton() }
-        }
     }
 
-    private func moveItems(from source: IndexSet, to destination: Int) {
-        session.rankedItems.move(fromOffsets: source, toOffset: destination)
-        for i in session.rankedItems.indices {
-            session.rankedItems[i].sortRank = i
-        }
-        session.didApply = false
-        RankingStore.save(rankedItems: session.rankedItems, forLists: session.selectedListIDs)
-    }
+    // MARK: - Bottom Bar
 
     private var bottomBar: some View {
         VStack(spacing: 10) {
             Divider().padding(.bottom, 2)
 
-            Button(action: { showApplySheet = true }) {
-                Label(
-                    session.didApply ? "Applied!" : "Apply to Reminders…",
-                    systemImage: session.didApply ? "checkmark" : "square.and.arrow.down"
-                )
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(session.didApply ? Color.green : Color.blue)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .disabled(session.didApply || isApplying)
-            .padding(.horizontal)
-
-            HStack {
-                ShareLink(
-                    item: shareText,
-                    subject: Text("My Priorities"),
-                    message: Text("Here are my ranked reminders:")
-                ) {
-                    Label("Share list", systemImage: "square.and.arrow.up")
-                        .font(.subheadline)
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-
-                Button("Start Over", role: .destructive) { showStartOverAlert = true }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            Button {
+                showApplySheet = true
+            } label: {
+                Label("Apply to Reminders…", systemImage: "square.and.arrow.down")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
             }
             .padding(.horizontal)
+
+            Button("Done") {
+                session.reset(eloEngine: eloEngine)
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
             .padding(.bottom, 32)
-            .alert("Start over?", isPresented: $showStartOverAlert) {
-                Button("Start Over", role: .destructive) { engine.reset(); session.reset() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("Your current ranking will be discarded.")
-            }
         }
     }
 
-    // MARK: - Actions
+    // MARK: - Apply
 
     private func applyOptions(_ options: ApplyOptions) {
-        isApplying = true
-        session.applyError = nil
-        showApplySheet = false
-
-        Task { @MainActor in
-            defer { isApplying = false }
-            do {
-                if options.applyPriorities {
-                    switch options.priorityMode {
-                    case .tiered:
-                        try remindersManager.applyPriorities(session.rankedItems)
-                    case .urgent:
-                        try remindersManager.applyTopNUrgent(session.rankedItems, count: options.urgentCount)
-                    }
+        do {
+            if options.applyPriorities {
+                switch options.priorityMode {
+                case .tiered: try remindersManager.applyPriorities(session.rankedItems)
+                case .topN:   try remindersManager.applyTopNUrgent(session.rankedItems, count: options.urgentCount)
                 }
-                if options.applyDueDates {
-                    try remindersManager.applyDueDates(
-                        session.rankedItems,
-                        count: options.dueDateCount,
-                        dueDate: options.resolvedDueDate
-                    )
-                }
-
-                session.didApply = true
-                withAnimation(.spring(response: 0.4)) { showSuccessBanner = true }
-            } catch {
-                session.applyError = error.localizedDescription
             }
+            if options.applyDueDates {
+                try remindersManager.applyDueDates(
+                    session.rankedItems,
+                    count: options.dueDateCount,
+                    dueDate: options.resolvedDueDate
+                )
+            }
+            withAnimation(.spring(response: 0.4)) { applied = true }
+        } catch {
+            applyError = error.localizedDescription
         }
-    }
-
-    private var shareText: String {
-        session.rankedItems.enumerated()
-            .map { "\($0 + 1). \($1.title)" }
-            .joined(separator: "\n")
     }
 }
 
-// MARK: - Apply Options
+// MARK: - Session Ranked Row
+
+private struct SessionRankedRow: View {
+    let item: ReminderItem
+    let rank: Int
+    let total: Int
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(badgeColor)
+                    .frame(width: 38, height: 38)
+                Text("\(rank)")
+                    .font(.system(.body, design: .rounded).bold())
+                    .foregroundStyle(.white)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font(.body)
+                    .lineLimit(2)
+                Text(item.listName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text(item.priorityLabel(totalCount: total))
+                .font(.caption.bold())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(priorityColor.opacity(0.15))
+                .foregroundStyle(priorityColor)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var badgeColor: Color {
+        switch rank {
+        case 1: return .blue
+        case 2: return .indigo
+        case 3: return .purple
+        default: return Color(.systemGray3)
+        }
+    }
+
+    private var priorityColor: Color {
+        switch item.priorityColor(totalCount: total) {
+        case .high:   return .red
+        case .medium: return .orange
+        case .low:    return .yellow
+        case .none:   return Color(.secondaryLabel)
+        }
+    }
+}
+
+// MARK: - Apply Options (shared with ListDetailView)
 
 struct ApplyOptions {
-    enum PriorityMode { case tiered, urgent }
-    enum DueTarget { case today, tomorrow, nextWeek, custom }
+    enum PriorityMode { case tiered, topN }
 
     var applyPriorities: Bool = true
     var priorityMode: PriorityMode = .tiered
@@ -207,43 +203,43 @@ struct ApplyOptions {
     var dueTarget: DueTarget = .today
     var customDate: Date = .now
 
+    enum DueTarget { case today, tomorrow, nextWeek, custom }
+
     var resolvedDueDate: Date {
         let cal = Calendar.current
         switch dueTarget {
-        case .today:     return cal.startOfDay(for: .now)
-        case .tomorrow:  return cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: .now)) ?? .now
-        case .nextWeek:  return cal.date(byAdding: .weekOfYear, value: 1, to: cal.startOfDay(for: .now)) ?? .now
-        case .custom:    return cal.startOfDay(for: customDate)
+        case .today:    return cal.startOfDay(for: .now)
+        case .tomorrow: return cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: .now)) ?? .now
+        case .nextWeek: return cal.date(byAdding: .weekOfYear, value: 1, to: cal.startOfDay(for: .now)) ?? .now
+        case .custom:   return cal.startOfDay(for: customDate)
         }
     }
 }
 
-// MARK: - Apply Sheet
+// MARK: - Apply Sheet (shared with ListDetailView)
 
-private struct ApplySheet: View {
+struct ApplySheet: View {
 
-    let itemCount: Int
-    let isApplying: Bool
+    let items: [ReminderItem]
     let onApply: (ApplyOptions) -> Void
 
     @State private var options = ApplyOptions()
     @Environment(\.dismiss) private var dismiss
 
+    var itemCount: Int { items.count }
+
     var body: some View {
         NavigationStack {
             Form {
-                // Priorities
                 Section {
                     Toggle("Set priorities", isOn: $options.applyPriorities)
-
                     if options.applyPriorities {
                         Picker("Mode", selection: $options.priorityMode) {
                             Text("Tiered").tag(ApplyOptions.PriorityMode.tiered)
-                            Text("Top N urgent").tag(ApplyOptions.PriorityMode.urgent)
+                            Text("Top N → High").tag(ApplyOptions.PriorityMode.topN)
                         }
                         .pickerStyle(.segmented)
-
-                        if options.priorityMode == .urgent {
+                        if options.priorityMode == .topN {
                             Stepper(
                                 "Top \(options.urgentCount) → High, rest → None",
                                 value: $options.urgentCount,
@@ -261,31 +257,23 @@ private struct ApplySheet: View {
                     }
                 }
 
-                // Due Dates
                 Section {
                     Toggle("Set due dates", isOn: $options.applyDueDates)
-
                     if options.applyDueDates {
                         Stepper(
                             "Top \(options.dueDateCount) item\(options.dueDateCount == 1 ? "" : "s")",
                             value: $options.dueDateCount,
                             in: 1...max(1, itemCount)
                         )
-
                         Picker("Due", selection: $options.dueTarget) {
                             Text("Today").tag(ApplyOptions.DueTarget.today)
                             Text("Tomorrow").tag(ApplyOptions.DueTarget.tomorrow)
                             Text("Next week").tag(ApplyOptions.DueTarget.nextWeek)
                             Text("Custom…").tag(ApplyOptions.DueTarget.custom)
                         }
-
                         if options.dueTarget == .custom {
-                            DatePicker(
-                                "Date",
-                                selection: $options.customDate,
-                                in: Date.now...,
-                                displayedComponents: .date
-                            )
+                            DatePicker("Date", selection: $options.customDate,
+                                       in: Date.now..., displayedComponents: .date)
                         }
                     }
                 } header: {
@@ -295,8 +283,6 @@ private struct ApplySheet: View {
                         Text("Sets the due date on the top \(options.dueDateCount) item\(options.dueDateCount == 1 ? "" : "s"). Does not set a time or notification.")
                     }
                 }
-
-
             }
             .navigationTitle("Apply to Reminders")
             .navigationBarTitleDisplayMode(.inline)
@@ -307,14 +293,14 @@ private struct ApplySheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") { onApply(options) }
                         .bold()
-                        .disabled(isApplying || (!options.applyPriorities && !options.applyDueDates))
+                        .disabled(!options.applyPriorities && !options.applyDueDates)
                 }
             }
         }
     }
 }
 
-// MARK: - Reminder Edit Sheet
+// MARK: - Reminder Edit Sheet (shared across views)
 
 struct ReminderEditSheet: View {
 
@@ -345,12 +331,10 @@ struct ReminderEditSheet: View {
                 Section("Title") {
                     TextField("Title", text: $title)
                 }
-
                 Section("Notes") {
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
                 }
-
                 Section("List") {
                     Picker("List", selection: $selectedCalendarID) {
                         ForEach(remindersManager.lists, id: \.calendarIdentifier) { list in
@@ -358,7 +342,6 @@ struct ReminderEditSheet: View {
                         }
                     }
                 }
-
                 Section {
                     Toggle("Due Date", isOn: $hasDueDate)
                     if hasDueDate {
@@ -366,7 +349,6 @@ struct ReminderEditSheet: View {
                                    displayedComponents: [.date, .hourAndMinute])
                     }
                 }
-
                 if let error = saveError {
                     Section {
                         Text(error).foregroundStyle(.red).font(.caption)
@@ -400,79 +382,6 @@ struct ReminderEditSheet: View {
             dismiss()
         } catch {
             saveError = error.localizedDescription
-        }
-    }
-}
-
-// MARK: - Ranked Row
-
-private struct RankedRow: View {
-    let item: ReminderItem
-    let rank: Int
-    let total: Int
-
-    private var priorityLabel: String { item.priorityLabel(totalCount: total) }
-    private var priorityColor: Color  { mapColor(item.priorityColor(totalCount: total)) }
-
-    var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(badgeColor)
-                    .frame(width: 38, height: 38)
-                Text("\(rank)")
-                    .font(.system(.body, design: .rounded).bold())
-                    .foregroundStyle(.white)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.title)
-                    .font(.body)
-                    .lineLimit(2)
-
-                HStack(spacing: 6) {
-                    Text(item.listName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if let reasoning = item.aiReasoning {
-                        Text("·").foregroundStyle(Color(.tertiaryLabel))
-                        Text(reasoning)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-
-            Spacer()
-
-            Text(priorityLabel)
-                .font(.caption.bold())
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(priorityColor.opacity(0.15))
-                .foregroundStyle(priorityColor)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .padding(.vertical, 4)
-    }
-
-    private var badgeColor: Color {
-        switch rank {
-        case 1: return .blue
-        case 2: return .indigo
-        case 3: return .purple
-        default: return Color(.systemGray3)
-        }
-    }
-
-    private func mapColor(_ c: ReminderItem.PriorityColor) -> Color {
-        switch c {
-        case .high:   return .red
-        case .medium: return .orange
-        case .low:    return .yellow
-        case .none:   return Color(.secondaryLabel)
         }
     }
 }

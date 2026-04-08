@@ -1,6 +1,9 @@
 import Foundation
 
-/// Calls the Anthropic Messages API via raw URLSession to pre-filter reminders.
+/// Calls the Anthropic Messages API via raw URLSession.
+/// Provides two modes:
+/// - `seedRanking`: ranks all items and returns confidence scores to seed Elo ratings.
+/// - `filterReminders`: legacy shortlist for use as a fallback.
 struct AnthropicService {
 
     private let apiKey: String
@@ -11,13 +14,93 @@ struct AnthropicService {
         self.apiKey = apiKey
     }
 
-    // MARK: - Public Interface
+    // MARK: - Shared Types
 
-    /// Sendable snapshot of a reminder — only the fields needed for AI filtering.
+    /// Sendable snapshot of a reminder — only the fields needed for AI.
     struct ReminderSummary: Sendable {
         let id: String
         let title: String
+        let notes: String?
+        let dueDateDescription: String?
     }
+
+    // MARK: - AI Seeding
+
+    /// Rank result from the seeding call. `rank` is 1-based (1 = highest priority).
+    /// `confidence` is 0–100 (100 = Claude is certain of this item's position).
+    struct SeededRank: Sendable {
+        let id: String
+        let rank: Int
+        let confidence: Int
+    }
+
+    /// Sends reminder summaries to Claude and returns a full ranked ordering with
+    /// per-item confidence scores. Used to seed initial Elo ratings before pairwise
+    /// comparisons begin.
+    ///
+    /// The caller maps rank → Elo via: `1000 + (totalCount - rank) * 20`
+    /// and sets kFactor via: `32 * (1 - confidence / 100)` (low confidence → high K).
+    func seedRanking(_ summaries: [ReminderSummary]) async throws -> [SeededRank] {
+        guard !summaries.isEmpty else { return [] }
+
+        let systemPrompt = """
+        You are a productivity assistant. Given a list of tasks/reminders, rank them from most \
+        to least important, considering urgency, impact, and time-sensitivity. For each item, \
+        provide a confidence score 0–100 reflecting how certain you are of its position \
+        (100 = definitely right, 0 = could plausibly go anywhere in the list). \
+        Return ALL items — do not filter any out.
+        """
+
+        let numberedList = summaries.enumerated().map { i, s in
+            var line = "\(i + 1). [ID: \(s.id)] \(s.title)"
+            if let notes = s.notes, !notes.isEmpty {
+                line += " — \(notes)"
+            }
+            if let due = s.dueDateDescription {
+                line += " (due: \(due))"
+            }
+            return line
+        }.joined(separator: "\n")
+
+        let userMessage = "Here are my tasks:\n\n\(numberedList)\n\nRank them and provide confidence scores."
+
+        let tool: [String: Any] = [
+            "name": "seed_ranking",
+            "description": "Return ALL items ranked from most to least important, with confidence scores.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "items": [
+                        "type": "array",
+                        "items": [
+                            "type": "object",
+                            "properties": [
+                                "id":         ["type": "string", "description": "The item ID exactly as provided"],
+                                "rank":       ["type": "integer", "description": "1-based rank (1 = highest priority)"],
+                                "confidence": ["type": "integer", "description": "0–100 confidence in this rank"]
+                            ],
+                            "required": ["id", "rank", "confidence"]
+                        ]
+                    ]
+                ],
+                "required": ["items"]
+            ]
+        ]
+
+        let requestBody: [String: Any] = [
+            "model": model,
+            "max_tokens": 4096,
+            "system": systemPrompt,
+            "tools": [tool],
+            "tool_choice": ["type": "tool", "name": "seed_ranking"],
+            "messages": [["role": "user", "content": userMessage]]
+        ]
+
+        let responseData = try await performRequest(body: requestBody)
+        return try parseSeedResponse(responseData)
+    }
+
+    // MARK: - Legacy Filtering (fallback)
 
     /// Sendable result from AI filtering — an ID and optional reasoning string.
     struct FilteredResult: Sendable {
@@ -26,7 +109,7 @@ struct AnthropicService {
     }
 
     /// Sends reminder summaries to Claude and returns the shortlisted IDs with reasoning.
-    /// Callers are responsible for mapping results back to their domain objects.
+    /// Used as a fallback when seeding is not needed or as a pre-filter for large lists.
     func filterReminders(_ summaries: [ReminderSummary]) async throws -> [FilteredResult] {
         guard !summaries.isEmpty else { return [] }
 
@@ -71,9 +154,7 @@ struct AnthropicService {
             "system": systemPrompt,
             "tools": [tool],
             "tool_choice": ["type": "tool", "name": "shortlist_reminders"],
-            "messages": [
-                ["role": "user", "content": userMessage]
-            ]
+            "messages": [["role": "user", "content": userMessage]]
         ]
 
         let responseData = try await performRequest(body: requestBody)
@@ -96,7 +177,6 @@ struct AnthropicService {
             throw AnthropicError.invalidResponse
         }
         guard httpResponse.statusCode == 200 else {
-            // Extract human-readable message from Anthropic's error envelope when possible.
             let message: String
             if let errorBody = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let errorObj = errorBody["error"] as? [String: Any],
@@ -110,8 +190,28 @@ struct AnthropicService {
         return data
     }
 
+    private func parseSeedResponse(_ data: Data) throws -> [SeededRank] {
+        guard
+            let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let contentBlocks = envelope["content"] as? [[String: Any]],
+            let toolBlock = contentBlocks.first(where: { $0["type"] as? String == "tool_use" }),
+            let input = toolBlock["input"] as? [String: Any],
+            let items = input["items"] as? [[String: Any]]
+        else {
+            throw AnthropicError.parseError("Unexpected seed_ranking response structure.")
+        }
+
+        return items.compactMap { entry -> SeededRank? in
+            guard
+                let id = entry["id"] as? String,
+                let rank = entry["rank"] as? Int,
+                let confidence = entry["confidence"] as? Int
+            else { return nil }
+            return SeededRank(id: id, rank: rank, confidence: max(0, min(100, confidence)))
+        }
+    }
+
     private func parseFilterResponse(_ data: Data) throws -> [FilteredResult] {
-        // Unwrap the Tool Use envelope: { content: [{ type: "tool_use", input: { items: [...] } }] }
         guard
             let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let contentBlocks = envelope["content"] as? [[String: Any]],
