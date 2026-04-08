@@ -141,7 +141,7 @@ struct SettingsView: View {
 
     private func saveAPIKey() {
         let trimmed = apiKey.trimmingCharacters(in: .whitespaces)
-        KeychainService.save(trimmed)
+        KeychainService.save(apiKey: trimmed)
         apiKeySaved = true
         Task {
             try? await Task.sleep(for: .seconds(2))
