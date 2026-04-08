@@ -1,5 +1,5 @@
 import Foundation
-import EventKit
+@preconcurrency import EventKit
 import SwiftData
 
 /// Handles all EventKit interactions: requesting access, fetching reminders, writing priorities.
