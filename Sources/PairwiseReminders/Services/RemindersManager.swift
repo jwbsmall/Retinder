@@ -86,36 +86,41 @@ final class RemindersManager: ObservableObject {
 
     // MARK: - Sync
 
-    /// Syncs SwiftData with the current state of EventKit for all imported lists.
+    /// Syncs SwiftData with the current state of EventKit for all lists.
+    /// - Auto-creates a ListConfig (enabled by default) for any list not yet tracked.
     /// - Inserts `RankedItemRecord` for reminders not yet tracked.
     /// - Deletes records for reminders that no longer exist or are completed.
     ///
     /// Call on app launch and when returning to the foreground.
     func syncWithEventKit(context: ModelContext) async {
         await fetchLists()
+        guard !lists.isEmpty else { return }
 
-        // Fetch all list configs to know which lists are imported.
-        let importedConfigs = ((try? context.fetch(FetchDescriptor<ListConfig>())) ?? [])
-            .filter(\.isImported)
-        guard !importedConfigs.isEmpty else { return }
+        // Auto-create ListConfig for every list the first time we see it.
+        let allConfigs = (try? context.fetch(FetchDescriptor<ListConfig>())) ?? []
+        let configuredIDs = Set(allConfigs.map(\.calendarIdentifier))
+        for calendar in lists where !configuredIDs.contains(calendar.calendarIdentifier) {
+            context.insert(ListConfig(calendarIdentifier: calendar.calendarIdentifier))
+        }
+        try? context.save()
 
-        let importedListIDs = Set(importedConfigs.map(\.calendarIdentifier))
-        let importedCalendars = lists.filter { importedListIDs.contains($0.calendarIdentifier) }
-        guard !importedCalendars.isEmpty else { return }
+        // Sync all lists (not just manually-imported ones).
+        let allCalendars = lists
 
         let predicate = store.predicateForIncompleteReminders(
             withDueDateStarting: nil,
             ending: nil,
-            calendars: importedCalendars
+            calendars: allCalendars
         )
 
         guard let reminders = await fetchRemindersAsync(matching: predicate) else { return }
 
         let liveIDs = Set(reminders.map(\.calendarItemIdentifier))
+        let allListIDs = Set(allCalendars.map(\.calendarIdentifier))
 
-        // Fetch all tracked records for imported lists.
+        // Fetch all tracked records.
         let existingRecords = ((try? context.fetch(FetchDescriptor<RankedItemRecord>())) ?? [])
-            .filter { importedListIDs.contains($0.listCalendarIdentifier) }
+            .filter { allListIDs.contains($0.listCalendarIdentifier) }
         let trackedIDs = Set(existingRecords.map(\.calendarItemIdentifier))
 
         // Insert new reminders.
