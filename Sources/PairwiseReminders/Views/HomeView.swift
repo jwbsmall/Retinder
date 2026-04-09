@@ -84,23 +84,6 @@ private struct ListRowView: View {
     private var rankedCount: Int { records.filter { $0.comparisonCount > 0 }.count }
     private var totalCount: Int { records.count }
 
-    private var stalenessDate: Date? {
-        records.compactMap(\.lastComparedAt).max()
-    }
-
-    private var isStale: Bool {
-        guard let last = stalenessDate else { return false }
-        let days = UserDefaults.standard.integer(forKey: "staleness_threshold_days")
-        let threshold = TimeInterval((days > 0 ? days : 14) * 86400)
-        return Date().timeIntervalSince(last) > threshold
-    }
-
-    private var stalenessText: String? {
-        guard let last = stalenessDate else { return nil }
-        let days = Int(Date().timeIntervalSince(last) / 86400)
-        return days == 0 ? "Ranked today" : "Ranked \(days)d ago"
-    }
-
     var body: some View {
         HStack(spacing: 12) {
             // List colour dot
@@ -112,30 +95,16 @@ private struct ListRowView: View {
                 Text(calendar.title)
                     .font(.body.bold())
 
-                HStack(spacing: 8) {
-                    if totalCount > 0 {
-                        Text("\(rankedCount)/\(totalCount) ranked")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("No items")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let text = stalenessText {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                            .font(.caption)
-                        Text(text)
-                            .font(.caption)
-                            .foregroundStyle(isStale ? .orange : .secondary)
-                    }
-                }
-
                 if totalCount > 0 {
+                    Text("\(rankedCount)/\(totalCount) ranked")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     ProgressView(value: Double(rankedCount), total: Double(max(totalCount, 1)))
-                        .tint(isStale ? .orange : Color(cgColor: calendar.cgColor))
+                        .tint(Color(cgColor: calendar.cgColor))
+                } else {
+                    Text("No items")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 

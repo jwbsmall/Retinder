@@ -1,32 +1,24 @@
 import SwiftUI
-import SwiftData
 
-/// Settings tab: AI configuration, per-list write-back rules, and ranking preferences.
+/// Settings tab: AI configuration.
 struct SettingsView: View {
 
     @EnvironmentObject private var session: PairwiseSession
     @EnvironmentObject private var remindersManager: RemindersManager
-    @Environment(\.modelContext) private var modelContext
-
-    @Query private var allConfigs: [ListConfig]
 
     @State private var apiKey: String = ""
     @State private var apiKeyMasked = true
     @State private var apiKeySaved = false
     @State private var useOnDeviceModel: Bool = FoundationModelService.isAvailable
     @State private var aiPreference: PairwiseSession.AIPreference = .onDeviceFirst
-    @State private var stalenessThresholdDays: Int = 14
 
     var body: some View {
         NavigationStack {
             Form {
                 aiSection
-                writeBackSection
-                rankingSection
             }
             .navigationTitle("Settings")
             .onAppear { loadSettings() }
-            .task { await remindersManager.fetchLists() }
         }
     }
 
@@ -85,50 +77,6 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Write-Back Section
-
-    private var writeBackSection: some View {
-        Section {
-            if allConfigs.isEmpty {
-                Text("Your Reminders lists will appear here once the app syncs.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(allConfigs) { config in
-                    let title = remindersManager.lists
-                        .first { $0.calendarIdentifier == config.calendarIdentifier }?.title
-                        ?? "Unknown List"
-                    NavigationLink(title) {
-                        WriteBackConfigView(config: config)
-                    }
-                }
-            }
-        } header: {
-            Text("Write-Back Rules")
-        } footer: {
-            Text("Configure how each list's ranking maps to Reminders priority, flags, and due dates.")
-        }
-    }
-
-    // MARK: - Ranking Section
-
-    private var rankingSection: some View {
-        Section {
-            Stepper(
-                "Stale after \(stalenessThresholdDays) days",
-                value: $stalenessThresholdDays,
-                in: 1...90
-            )
-            .onChange(of: stalenessThresholdDays) { _, v in
-                UserDefaults.standard.set(v, forKey: "staleness_threshold_days")
-            }
-        } header: {
-            Text("Ranking")
-        } footer: {
-            Text("Lists are flagged as stale when their last comparison is older than this threshold.")
-        }
-    }
-
     // MARK: - Persistence
 
     private func loadSettings() {
@@ -136,8 +84,6 @@ struct SettingsView: View {
         aiPreference = session.aiPreference
         useOnDeviceModel = FoundationModelService.isAvailable
             && UserDefaults.standard.bool(forKey: "use_on_device_model")
-        let stored = UserDefaults.standard.integer(forKey: "staleness_threshold_days")
-        stalenessThresholdDays = stored > 0 ? stored : 14
     }
 
     private func saveAPIKey() {
@@ -152,67 +98,5 @@ struct SettingsView: View {
 
     private func savePreferences() {
         UserDefaults.standard.set(useOnDeviceModel, forKey: "use_on_device_model")
-    }
-}
-
-// MARK: - Per-List Write-Back Config
-
-private struct WriteBackConfigView: View {
-
-    @Bindable var config: ListConfig
-    @Environment(\.modelContext) private var modelContext
-
-    var body: some View {
-        Form {
-            Section("Flags") {
-                Stepper(
-                    config.flagTopN == 0 ? "Flags: off" : "Flag top \(config.flagTopN)",
-                    value: $config.flagTopN,
-                    in: 0...50
-                )
-            }
-
-            Section("Priority") {
-                Picker("Mode", selection: $config.priorityMode) {
-                    Text("None").tag("none")
-                    Text("Tiered (High / Med / Low)").tag("tiered")
-                    Text("Top N → High").tag("topN")
-                }
-                if config.priorityMode == "topN" {
-                    Stepper("Top \(config.priorityTopN) → High", value: $config.priorityTopN, in: 1...50)
-                }
-            }
-
-            Section("Due Dates") {
-                Stepper(
-                    config.dueDateTopN == 0 ? "Due dates: off" : "Set due date for top \(config.dueDateTopN)",
-                    value: $config.dueDateTopN,
-                    in: 0...50
-                )
-                if config.dueDateTopN > 0 {
-                    Picker("Target date", selection: $config.dueDateTarget) {
-                        Text("Today").tag("today")
-                        Text("Tomorrow").tag("tomorrow")
-                        Text("Next week").tag("nextWeek")
-                    }
-                }
-            }
-
-            Section("Trigger") {
-                Toggle("Auto write-back on ranking change", isOn: $config.autoWriteBack)
-            }
-        }
-        .navigationTitle("Write-Back")
-        .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: config.flagTopN)              { _, _ in save() }
-        .onChange(of: config.priorityMode)          { _, _ in save() }
-        .onChange(of: config.priorityTopN)          { _, _ in save() }
-        .onChange(of: config.dueDateTopN)           { _, _ in save() }
-        .onChange(of: config.dueDateTarget)         { _, _ in save() }
-        .onChange(of: config.autoWriteBack)         { _, _ in save() }
-    }
-
-    private func save() {
-        try? modelContext.save()
     }
 }
