@@ -79,7 +79,8 @@ final class RemindersManager: ObservableObject {
             return ReminderItem(
                 from: reminder,
                 eloRating: record?.eloRating ?? 1000.0,
-                kFactor: record?.kFactor ?? 32.0
+                kFactor: record?.kFactor ?? 32.0,
+                comparisonCount: record?.comparisonCount ?? 0
             )
         }
     }

@@ -18,6 +18,13 @@ struct ListPickerView: View {
         content
             .navigationTitle("Choose Lists")
             .task { await remindersManager.fetchLists() }
+            .onAppear {
+                // Pre-select any lists forwarded from HomeView / ListDetailView.
+                if !session.pendingListIDs.isEmpty {
+                    selectedListIDs.formUnion(session.pendingListIDs)
+                    session.pendingListIDs = []
+                }
+            }
     }
 
     @ViewBuilder

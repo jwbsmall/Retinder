@@ -31,6 +31,10 @@ final class PairwiseSession: ObservableObject {
     /// All items fetched for the active session (across all selected lists).
     @Published private(set) var sessionItems: [ReminderItem] = []
 
+    /// Set from outside (e.g. ListDetailView) to pre-select lists in ListPickerView
+    /// and switch the tab bar to the Prioritise tab.
+    @Published var pendingListIDs: Set<String> = []
+
     /// Items sorted by Elo after the session finishes (index 0 = highest priority).
     @Published private(set) var rankedItems: [ReminderItem] = []
 
