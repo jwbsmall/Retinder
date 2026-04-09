@@ -20,12 +20,6 @@ struct ListDetailView: View {
     @State private var showApplySheet = false
     @State private var applyError: String?
 
-    private var config: ListConfig? {
-        let id = calendar.calendarIdentifier
-        return ((try? modelContext.fetch(FetchDescriptor<ListConfig>())) ?? [])
-            .first { $0.calendarIdentifier == id }
-    }
-
     private var rankedItems: [ReminderItem] {
         items.filter { $0.eloRating != 1000.0 || hasRecord($0) }
              .sorted { $0.eloRating > $1.eloRating }

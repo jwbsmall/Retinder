@@ -69,9 +69,13 @@ struct ResultsView: View {
     // MARK: - Ranked List
 
     private var rankedList: some View {
-        List {
+        let ratings = session.rankedItems.map(\.eloRating)
+        let minR = ratings.min() ?? 1000
+        let maxR = ratings.max() ?? 1000
+        return List {
             ForEach(Array(session.rankedItems.enumerated()), id: \.element.id) { index, item in
-                SessionRankedRow(item: item, rank: index + 1, total: session.rankedItems.count)
+                SessionRankedRow(item: item, rank: index + 1, total: session.rankedItems.count,
+                                 minRating: minR, maxRating: maxR)
                     .onTapGesture { editingItem = item }
             }
         }
@@ -136,6 +140,16 @@ private struct SessionRankedRow: View {
     let item: ReminderItem
     let rank: Int
     let total: Int
+    let minRating: Double
+    let maxRating: Double
+
+    var strength: Double {
+        maxRating > minRating ? (item.eloRating - minRating) / (maxRating - minRating) : 0.5
+    }
+
+    var strengthColor: Color {
+        strength > 0.66 ? .blue : strength > 0.33 ? .indigo : Color(.systemGray3)
+    }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -155,6 +169,9 @@ private struct SessionRankedRow: View {
                 Text(item.listName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                ProgressView(value: strength)
+                    .tint(strengthColor)
+                    .frame(width: 80)
             }
 
             Spacer()

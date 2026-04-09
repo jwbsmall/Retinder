@@ -132,8 +132,10 @@ final class EloEngine: ObservableObject {
 
     // MARK: - Pair Selection
 
-    /// Picks the next pair to show: the matchup with the smallest rating gap among
-    /// all uncertain pairs (gap < 50). Converges when no uncertain pairs remain.
+    /// Picks the next pair to show: the adjacent pair (in current rating order) with the
+    /// smallest gap. Only compares adjacent items — O(N) instead of O(N²) — which is
+    /// anytime-optimal: each comparison resolves the most locally uncertain ordering,
+    /// so stopping early always yields the best possible partial ranking.
     private func advanceToNextPair() {
         currentPair = nil
         guard items.count >= 2 else {
@@ -141,43 +143,36 @@ final class EloEngine: ObservableObject {
             return
         }
 
-        // Find the most uncertain pair: smallest gap below the convergence threshold.
-        let threshold = 50.0
-        var bestI = -1, bestJ = -1, bestGap = Double.infinity
-        for i in items.indices {
-            for j in (i + 1)..<items.count {
-                let gap = abs(items[i].eloRating - items[j].eloRating)
-                if gap < threshold && gap < bestGap {
-                    bestGap = gap
-                    bestI = i
-                    bestJ = j
-                }
+        let sorted = items.sorted { $0.eloRating > $1.eloRating }
+        var bestGap = Double.infinity
+        var bestPair: (ReminderItem, ReminderItem)?
+
+        for i in 0..<(sorted.count - 1) {
+            let gap = sorted[i].eloRating - sorted[i + 1].eloRating
+            if gap < 50.0 && gap < bestGap {
+                bestGap = gap
+                bestPair = (sorted[i], sorted[i + 1])
             }
         }
 
-        guard bestI >= 0 else {
+        if let pair = bestPair {
+            currentPair = pair
+        } else {
             isConverged = true
-            return
         }
-
-        currentPair = (items[bestI], items[bestJ])
     }
 
     // MARK: - Convergence
 
-    /// Counts pairs with a rating gap < 50 as "uncertain". When none remain, the
-    /// ranking is considered converged.
+    /// Counts adjacent pairs (in rating order) with gap < 50 as "uncertain".
+    /// O(N) rather than O(N²) — and gives a much more accurate "comparisons left" estimate.
     private func updateConvergence() {
-        var uncertainCount = 0
-        for i in items.indices {
-            for j in (i + 1)..<items.count {
-                if abs(items[i].eloRating - items[j].eloRating) < 50.0 {
-                    uncertainCount += 1
-                }
-            }
-        }
-        estimatedRemaining = uncertainCount
-        isConverged = uncertainCount == 0
+        let sorted = items.sorted { $0.eloRating > $1.eloRating }
+        let count = zip(sorted, sorted.dropFirst())
+            .filter { $0.eloRating - $1.eloRating < 50.0 }
+            .count
+        estimatedRemaining = count
+        isConverged = count == 0
     }
 
     // MARK: - Persistence
