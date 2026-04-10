@@ -21,12 +21,12 @@ struct ListDetailView: View {
     @State private var applyError: String?
 
     private var rankedItems: [ReminderItem] {
-        items.filter { $0.eloRating != 1000.0 || hasRecord($0) }
+        items.filter { $0.comparisonCount > 0 }
              .sorted { $0.eloRating > $1.eloRating }
     }
 
     private var unrankedItems: [ReminderItem] {
-        items.filter { !rankedItems.contains($0) }
+        items.filter { $0.comparisonCount == 0 }
     }
 
     var body: some View {
@@ -140,9 +140,9 @@ struct ListDetailView: View {
         ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
                 Button {
-                    startSession()
+                    addToPrioritise()
                 } label: {
-                    Label("Prioritise", systemImage: "arrow.up.arrow.down")
+                    Label("Add to Prioritise", systemImage: "arrow.up.arrow.down")
                 }
                 if !rankedItems.isEmpty {
                     Button {
@@ -173,15 +173,10 @@ struct ListDetailView: View {
         items.removeAll { $0.id == item.id }
     }
 
-    private func startSession() {
-        Task {
-            await session.start(
-                listIDs: [calendar.calendarIdentifier],
-                remindersManager: remindersManager,
-                eloEngine: eloEngine,
-                context: modelContext
-            )
-        }
+    /// Pre-selects this list in the Prioritise tab and switches to it.
+    /// The user can add more lists before starting the session.
+    private func addToPrioritise() {
+        session.pendingListIDs.insert(calendar.calendarIdentifier)
     }
 
     private func applyWriteBack(_ options: ApplyOptions) {
@@ -213,29 +208,19 @@ struct ListDetailView: View {
         var mutable = rankedItems
         mutable.move(fromOffsets: source, toOffset: destination)
 
-        // Distribute ratings evenly across the new order so the ranking is preserved on next load.
+        // Load all records once — avoids N separate SwiftData fetches inside the loop.
+        let allRecords = (try? modelContext.fetch(FetchDescriptor<RankedItemRecord>())) ?? []
+        let recordsByID = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.calendarItemIdentifier, $0) })
+
         let spread = 20.0
         let top = (mutable.first?.eloRating ?? 1000.0) + spread * Double(mutable.count)
         for (i, item) in mutable.enumerated() {
             guard let idx = self.items.firstIndex(where: { $0.id == item.id }) else { continue }
             let newRating = top - spread * Double(i)
             self.items[idx].eloRating = newRating
-
-            // Persist
-            let id = item.id
-            let record = ((try? modelContext.fetch(FetchDescriptor<RankedItemRecord>())) ?? [])
-                .first { $0.calendarItemIdentifier == id }
-            if let record {
-                record.eloRating = newRating
-                try? modelContext.save()
-            }
+            recordsByID[item.id]?.eloRating = newRating
         }
-    }
-
-    private func hasRecord(_ item: ReminderItem) -> Bool {
-        let id = item.id
-        return ((try? modelContext.fetch(FetchDescriptor<RankedItemRecord>())) ?? [])
-            .contains { $0.calendarItemIdentifier == id }
+        try? modelContext.save()
     }
 }
 

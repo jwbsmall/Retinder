@@ -39,6 +39,8 @@ final class EloEngine: ObservableObject {
     // MARK: - Private State
 
     private var items: [ReminderItem] = []
+    /// Prevents showing the exact same pair twice in a row.
+    private var lastPairKey: String?
 
     // MARK: - Public Interface
 
@@ -49,8 +51,7 @@ final class EloEngine: ObservableObject {
         isStarted = true
         comparisonCount = 0
         self.items = items
-        updateConvergence()
-        advanceToNextPair()
+        updateConvergenceAndAdvance()
     }
 
     /// The user picked `winner` as higher priority. Updates both items' ratings and
@@ -60,8 +61,7 @@ final class EloEngine: ObservableObject {
         let loser = winner.id == pair.0.id ? pair.1 : pair.0
         applyEloUpdate(winner: winner.id, loser: loser.id, outcome: 1.0)
         comparisonCount += 1
-        updateConvergence()
-        advanceToNextPair()
+        updateConvergenceAndAdvance()
     }
 
     /// The user considers the two items roughly equal. Applies a small symmetric update.
@@ -76,16 +76,14 @@ final class EloEngine: ObservableObject {
             items[li].eloRating -= 25.0
         }
         comparisonCount += 1
-        updateConvergence()
-        advanceToNextPair()
+        updateConvergenceAndAdvance()
     }
 
     /// The user skips without expressing a preference. No rating change; moves on.
     func skip() {
         guard currentPair != nil else { return }
-        currentPair = nil
         comparisonCount += 1
-        advanceToNextPair()
+        updateConvergenceAndAdvance()
     }
 
     /// Persists all current Elo ratings to SwiftData and returns items sorted by
@@ -103,6 +101,7 @@ final class EloEngine: ObservableObject {
         estimatedRemaining = 0
         isConverged = false
         isStarted = false
+        lastPairKey = nil
     }
 
     // MARK: - Elo Maths
@@ -130,49 +129,52 @@ final class EloEngine: ObservableObject {
         items[li].kFactor = max(8.0, kB * 0.95)
     }
 
-    // MARK: - Pair Selection
+    // MARK: - Pair Selection + Convergence (combined to sort once per comparison)
 
-    /// Picks the next pair to show: the adjacent pair (in current rating order) with the
-    /// smallest gap. Only compares adjacent items — O(N) instead of O(N²) — which is
-    /// anytime-optimal: each comparison resolves the most locally uncertain ordering,
-    /// so stopping early always yields the best possible partial ranking.
-    private func advanceToNextPair() {
+    /// Sorts items once, counts uncertain adjacent pairs, and selects the next pair to show.
+    /// Skips the most-recently-shown pair if any other uncertain pair exists — prevents
+    /// the same two items appearing back-to-back when their gap is still the smallest.
+    private func updateConvergenceAndAdvance() {
         currentPair = nil
-        guard items.count >= 2 else {
-            isConverged = true
-            return
-        }
+        guard items.count >= 2 else { isConverged = true; return }
 
         let sorted = items.sorted { $0.eloRating > $1.eloRating }
+
+        var uncertainCount = 0
         var bestGap = Double.infinity
         var bestPair: (ReminderItem, ReminderItem)?
+        var fallbackGap = Double.infinity
+        var fallbackPair: (ReminderItem, ReminderItem)?
 
         for i in 0..<(sorted.count - 1) {
             let gap = sorted[i].eloRating - sorted[i + 1].eloRating
-            if gap < 50.0 && gap < bestGap {
-                bestGap = gap
-                bestPair = (sorted[i], sorted[i + 1])
+            guard gap < 50.0 else { continue }
+            uncertainCount += 1
+            let key = pairKey(sorted[i], sorted[i + 1])
+            if gap < bestGap {
+                // Prefer a pair we haven't just shown.
+                if key != lastPairKey {
+                    bestGap = gap
+                    bestPair = (sorted[i], sorted[i + 1])
+                } else if gap < fallbackGap {
+                    fallbackGap = gap
+                    fallbackPair = (sorted[i], sorted[i + 1])
+                }
             }
         }
 
-        if let pair = bestPair {
+        estimatedRemaining = uncertainCount
+
+        if let pair = bestPair ?? fallbackPair {
+            lastPairKey = pairKey(pair.0, pair.1)
             currentPair = pair
         } else {
             isConverged = true
         }
     }
 
-    // MARK: - Convergence
-
-    /// Counts adjacent pairs (in rating order) with gap < 50 as "uncertain".
-    /// O(N) rather than O(N²) — and gives a much more accurate "comparisons left" estimate.
-    private func updateConvergence() {
-        let sorted = items.sorted { $0.eloRating > $1.eloRating }
-        let count = zip(sorted, sorted.dropFirst())
-            .filter { $0.eloRating - $1.eloRating < 50.0 }
-            .count
-        estimatedRemaining = count
-        isConverged = count == 0
+    private func pairKey(_ a: ReminderItem, _ b: ReminderItem) -> String {
+        a.id < b.id ? "\(a.id)|\(b.id)" : "\(b.id)|\(a.id)"
     }
 
     // MARK: - Persistence

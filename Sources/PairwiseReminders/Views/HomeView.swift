@@ -95,12 +95,15 @@ private struct ListRowView: View {
                 Text(calendar.title)
                     .font(.body.bold())
 
-                if totalCount > 0 {
-                    Text("\(rankedCount)/\(totalCount) ranked")
+                if rankedCount > 0 {
+                    Text("\(rankedCount) ranked")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    ProgressView(value: Double(rankedCount), total: Double(max(totalCount, 1)))
-                        .tint(Color(cgColor: calendar.cgColor))
+                    eloSparkline
+                } else if totalCount > 0 {
+                    Text("\(totalCount) items")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else {
                     Text("No items")
                         .font(.caption)
@@ -114,6 +117,28 @@ private struct ListRowView: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 4)
+    }
+
+    /// A mini bar chart of Elo ratings for ranked items (up to 10 bars), tallest = highest ranked.
+    @ViewBuilder
+    private var eloSparkline: some View {
+        let ranked = records.filter { $0.comparisonCount > 0 }
+                            .sorted { $0.eloRating > $1.eloRating }
+        if ranked.count >= 2 {
+            let maxR = ranked[0].eloRating
+            let minR = ranked[ranked.count - 1].eloRating
+            let range = max(maxR - minR, 1.0)
+            let listColor = Color(cgColor: calendar.cgColor)
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(Array(ranked.prefix(10).enumerated()), id: \.offset) { _, record in
+                    let h = 4.0 + 12.0 * ((record.eloRating - minR) / range)
+                    Capsule()
+                        .fill(listColor.opacity(0.75))
+                        .frame(width: 4, height: h)
+                }
+            }
+            .frame(height: 16, alignment: .bottom)
+        }
     }
 }
 
