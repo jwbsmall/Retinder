@@ -54,6 +54,9 @@ final class EloEngine: ObservableObject {
     /// deltas can be re-applied correctly after an undo resets items to startItems.
     private var decisionHistory: [(pairKey: String, winnerID: String, loserID: String)] = []
 
+    /// UUID identifying all decisions from this session. Generated fresh each `start()`.
+    private var sessionID: String = ""
+
     // MARK: - Public Interface
 
     /// Starts the merge sort. Items are pre-ordered by their Elo rating (AI seed order)
@@ -61,6 +64,7 @@ final class EloEngine: ObservableObject {
     func start(with items: [ReminderItem]) {
         guard !isStarted else { return }
         comparisonCount = 0
+        sessionID = UUID().uuidString
         self.items = items.sorted { $0.eloRating > $1.eloRating }
         startItems = self.items
         totalComparisons = worstCaseComparisons(self.items.count)
@@ -140,6 +144,7 @@ final class EloEngine: ObservableObject {
         totalComparisons = 0
         decisionHistory = []
         canUndo = false
+        sessionID = ""
     }
 
     // MARK: - Private Helpers
@@ -265,6 +270,25 @@ final class EloEngine: ObservableObject {
                 record.lastComparedAt = now
             }
         }
+
+        // Persist comparison decisions for the history log.
+        if !decisionHistory.isEmpty && !sessionID.isEmpty {
+            let titleByID = Dictionary(items.map { ($0.id, $0.title) },
+                                      uniquingKeysWith: { first, _ in first })
+            for (index, decision) in decisionHistory.enumerated() {
+                let record = ComparisonRecord(
+                    sessionID: sessionID,
+                    sessionDate: now,
+                    order: index,
+                    winnerID: decision.winnerID,
+                    winnerTitle: titleByID[decision.winnerID] ?? decision.winnerID,
+                    loserID: decision.loserID,
+                    loserTitle: titleByID[decision.loserID] ?? decision.loserID
+                )
+                context.insert(record)
+            }
+        }
+
         try? context.save()
     }
 }

@@ -10,6 +10,7 @@ struct ResultsView: View {
     @EnvironmentObject private var eloEngine: EloEngine
 
     @State private var showApplySheet = false
+    @State private var showHistory = false
     @State private var applyError: String?
     @State private var applied = false
     @State private var editingItem: ReminderItem?
@@ -25,6 +26,21 @@ struct ResultsView: View {
         .navigationTitle("Session Results")
         .navigationBarTitleDisplayMode(.large)
         .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showHistory = true
+                } label: {
+                    Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                }
+                .accessibilityLabel("Comparison history")
+            }
+        }
+        .sheet(isPresented: $showHistory) {
+            HistoryView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showApplySheet) {
             ApplySheet(items: session.rankedItems) { options in
                 applyOptions(options)

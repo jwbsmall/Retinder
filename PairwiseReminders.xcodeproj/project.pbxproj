@@ -28,6 +28,8 @@
 		AA0000000000000000000044 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000043 /* HomeView.swift */; };
 		AA0000000000000000000046 /* ListDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000045 /* ListDetailView.swift */; };
 		AA0000000000000000000048 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000047 /* SettingsView.swift */; };
+		AA000000000000000000004A /* ComparisonRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000049 /* ComparisonRecord.swift */; };
+		AA000000000000000000004C /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000004B /* HistoryView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -74,6 +76,8 @@
 		AA0000000000000000000043 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		AA0000000000000000000045 /* ListDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListDetailView.swift; sourceTree = "<group>"; };
 		AA0000000000000000000047 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000049 /* ComparisonRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComparisonRecord.swift; sourceTree = "<group>"; };
+		AA000000000000000000004B /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -156,6 +160,7 @@
 				AA0000000000000000000019 /* PairwiseSession.swift */,
 				AA0000000000000000000039 /* RankedItemRecord.swift */,
 				AA000000000000000000003B /* ListConfig.swift */,
+				AA0000000000000000000049 /* ComparisonRecord.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -191,6 +196,7 @@
 				AA0000000000000000000043 /* HomeView.swift */,
 				AA0000000000000000000045 /* ListDetailView.swift */,
 				AA0000000000000000000047 /* SettingsView.swift */,
+				AA000000000000000000004B /* HistoryView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -385,6 +391,8 @@
 				AA0000000000000000000044 /* HomeView.swift in Sources */,
 				AA0000000000000000000046 /* ListDetailView.swift in Sources */,
 				AA0000000000000000000048 /* SettingsView.swift in Sources */,
+				AA000000000000000000004A /* ComparisonRecord.swift in Sources */,
+				AA000000000000000000004C /* HistoryView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
