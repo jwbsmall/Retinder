@@ -7,9 +7,7 @@ struct FilteringView: View {
 
     @EnvironmentObject private var session: PairwiseSession
 
-    @State private var statusLine = "Getting ready…"
-    @State private var dotCount = 0
-    private let dotTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    @State private var statusLine = "Fetching reminders…"
 
     var body: some View {
         VStack(spacing: 36) {
@@ -43,26 +41,19 @@ struct FilteringView: View {
             Spacer()
         }
         .padding()
-        .onReceive(dotTimer) { _ in
-            updateStatus()
-        }
-        .onChange(of: session.phase) { _, newPhase in
-            // PairwiseSession advances phase to .comparing when done; nothing else needed here.
-            _ = newPhase
+        .onAppear { updateStatus(count: session.sessionItems.count) }
+        .onChange(of: session.sessionItems.count) { _, count in
+            updateStatus(count: count)
         }
     }
 
-    private func updateStatus() {
-        let count = session.sessionItems.count
-        let dots = String(repeating: ".", count: (dotCount % 3) + 1)
-        dotCount += 1
-
+    private func updateStatus(count: Int) {
         if count == 0 {
-            statusLine = "Fetching reminders\(dots)"
+            statusLine = "Fetching reminders…"
         } else if session.aiPreference == .none {
-            statusLine = "Preparing \(count) item\(count == 1 ? "" : "s") for comparison\(dots)"
+            statusLine = "Preparing \(count) item\(count == 1 ? "" : "s")…"
         } else {
-            statusLine = "AI is ranking \(count) item\(count == 1 ? "" : "s")\(dots)"
+            statusLine = "AI is ranking \(count) item\(count == 1 ? "" : "s")…"
         }
     }
 }
