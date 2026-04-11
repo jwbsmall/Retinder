@@ -42,19 +42,21 @@ Retinder/
     │   ├── ReminderItem.swift          # Wraps EKReminder with display helpers
     │   └── PairwiseSession.swift       # Central workflow state (ObservableObject)
     ├── Engine/
-    │   └── PairwiseEngine.swift        # Merge-sort with async user choice (ObservableObject)
+    │   └── EloEngine.swift             # Merge-sort with Elo rating + async user choice (ObservableObject)
     ├── Services/
     │   ├── RemindersManager.swift      # EventKit read/write wrapper (ObservableObject)
     │   ├── AnthropicService.swift      # Claude API HTTP client
     │   ├── KeychainService.swift       # Secure API key storage
     │   └── RankingStore.swift          # UserDefaults session persistence
     └── Views/
-        ├── ContentView.swift           # Root router — switches on PairwiseSession.phase
-        ├── OnboardingView.swift        # API key entry screen
-        ├── ListPickerView.swift        # Reminder list selection UI
-        ├── FilteringView.swift         # AI filtering progress indicator
+        ├── ContentView.swift           # Root view — just renders HomeView + bootstrap task
+        ├── HomeView.swift              # Lists/All Reminders toggle; gear → Settings, arrow → Prioritise
+        ├── ListDetailView.swift        # Single-list ranked + unranked items, drag-to-reorder
+        ├── ListPickerView.swift        # Reminder list selection UI (inside Prioritise flow)
+        ├── FilteringView.swift         # AI seeding progress indicator
         ├── PairwiseView.swift          # Tinder-style swipe comparison UI
-        └── ResultsView.swift           # Ranked results + apply-to-Reminders options
+        ├── ResultsView.swift           # Ranked results + apply-to-Reminders options
+        └── SettingsView.swift          # AI key entry and preference settings
 ```
 
 ---
@@ -74,7 +76,7 @@ To add new source files, use Xcode's New File dialog — it updates `.xcodeproj`
 
 There is currently no test target. If adding tests, use **XCTest** or the **Swift Testing** framework. Key areas that need coverage:
 
-- `PairwiseEngine` — merge-sort logic and `choose(winner:)` path
+- `EloEngine` — merge-sort logic and `choose(winner:)` path
 - `AnthropicService` — request construction and response parsing
 - `RemindersManager` — `applyPriorities()` and `applyTopNUrgent()` save discipline
 
@@ -88,26 +90,36 @@ There is currently no test target. If adding tests, use **XCTest** or the **Swif
 |-------|------|--------------|
 | `PairwiseSession` | ViewModel / state container | `@EnvironmentObject` |
 | `RemindersManager` | ViewModel / EventKit wrapper | `@EnvironmentObject` |
-| `PairwiseEngine` | ViewModel / sort engine | `@EnvironmentObject` |
+| `EloEngine` | ViewModel / sort engine | `@EnvironmentObject` |
 | `AnthropicService` | Stateless service | Direct instantiation |
 | `KeychainService` | Stateless service | Direct instantiation |
 | `RankingStore` | Stateless service | Direct instantiation |
 
 All three `@EnvironmentObject` instances are created in `PairwiseRemindersApp.swift` and injected at the root.
 
-### Workflow Phases
+### Navigation Structure
 
-`PairwiseSession.phase` drives the root `ContentView` router:
+`HomeView` is the single root view. It contains two modes (Lists / All Reminders) toggled by a segmented picker at the top. No tab bar.
+
+- **Lists mode** — shows all `EKCalendar` lists with Elo sparklines; tapping drills into `ListDetailView`
+- **All Reminders mode** — flattened cross-list view sorted by Elo; supports multi-select → Prioritise
+- **Gear icon** (top-right) — opens `SettingsView` as a sheet (API key, AI preference)
+- **Arrow icon** (top-right) — opens the Prioritise flow as a `fullScreenCover`
+
+### Prioritise Flow (fullScreenCover)
+
+`PairwiseSession.phase` drives the session router inside the `fullScreenCover`:
 
 ```
-.onboarding  →  .listPicking  →  .filtering  →  .comparing  →  .results
+.idle  →  .seeding  →  .comparing  →  .done
 ```
 
-- **.onboarding** — shown when no API key is stored in Keychain (optional; user can skip)
-- **.listPicking** — user selects one or more reminder lists; optionally resumes a saved ranking
-- **.filtering** — `AnthropicService` asks Claude to select the most relevant items; falls back gracefully if unavailable
-- **.comparing** — `PairwiseEngine` runs merge-sort, pausing at each comparison for the user to swipe
-- **.results** — sorted list displayed; user can apply priorities, due dates, or both to Reminders
+- **.idle** — `ListPickerView`: user selects one or more reminder lists; Cancel dismisses the cover
+- **.seeding** — `FilteringView`: AI seeding in progress; falls back gracefully if unavailable
+- **.comparing** — `PairwiseView`: merge-sort pauses at each pair for the user to swipe or choose
+- **.done** — `ResultsView`: ranked list displayed; "Done" resets session → phase = .idle → cover dismisses
+
+`session.pendingListIDs` is the bridge from `ListDetailView` / All Reminders multi-select → Prioritise flow. Setting it non-empty from HomeView's `onChange` opens the cover and pre-populates `ListPickerView`.
 
 ### Key Patterns
 
@@ -115,7 +127,7 @@ All three `@EnvironmentObject` instances are created in `PairwiseRemindersApp.sw
 All mutations happen on the main actor to ensure thread-safe SwiftUI updates. Never call `store.save()` or publish state changes off the main thread.
 
 #### 2. CheckedContinuation for async user input
-`PairwiseEngine` suspends merge-sort at each pair comparison using `withCheckedContinuation`. The UI calls `engine.choose(winner:)` to resume. **Always resume a pending continuation before calling `reset()`** to avoid memory leaks.
+`EloEngine` suspends merge-sort at each pair comparison using `withCheckedContinuation`. The UI calls `engine.choose(winner:)` to resume. **Always resume a pending continuation before calling `reset()`** to avoid memory leaks.
 
 #### 3. EventKit save discipline
 Mutating `EKReminder` properties requires:
@@ -125,11 +137,11 @@ store.commit()                    // once after all items
 ```
 Never call `store.commit()` inside a loop. See `RemindersManager.applyPriorities()`.
 
-#### 4. Graceful degradation for AI filtering
-If the API key is missing or the request fails, `session.aiFilteringFailed` is set to `true` and the workflow continues with random sampling (capped at 20 items). Never block the workflow on AI availability.
+#### 4. Graceful degradation for AI seeding
+If the API key is missing or the request fails, `session.seedingFailed` is set to `true` and the workflow continues with default Elo ratings (1000). Never block the workflow on AI availability. On-device Foundation Models are tried first (if available), then the Anthropic API, based on `session.aiPreference`.
 
-#### 5. Session persistence via `RankingStore`
-Rankings are keyed by a sorted, comma-joined string of `EKCalendar` identifiers stored in `UserDefaults` with the prefix `ranking_v1_`. New items are appended; completed items are filtered out on load.
+#### 5. Elo persistence via SwiftData (`RankedItemRecord`)
+Elo ratings, K-factors, and comparison counts are persisted in SwiftData keyed by `EKReminder.calendarItemIdentifier`. Loaded into `ReminderItem` at fetch time; written back by `EloEngine.finish(context:)` at session end or bail-out.
 
 ---
 
@@ -167,7 +179,7 @@ Rankings are keyed by a sorted, comma-joined string of `EKCalendar` identifiers 
 - **Auth header:** `x-api-key: <stored in Keychain>`
 - **Key storage:** Keychain service `com.josmall.PairwiseReminders`, account `anthropic-api-key`
 
-The API key is auto-filled on the onboarding screen if the pasteboard contains a string starting with `sk-ant-` (workaround for iOS simulator clipboard isolation).
+The API key is entered in `SettingsView` (gear icon in HomeView). No onboarding screen — the app works without a key (AI seeding is skipped).
 
 ---
 
