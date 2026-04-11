@@ -75,16 +75,24 @@ struct PairwiseView: View {
 
                 Spacer()
 
-                Group {
-                    if engine.estimatedRemaining > 0 {
-                        Text("\(engine.estimatedRemaining) left")
-                    } else {
-                        Text("Almost done")
+                HStack(spacing: 12) {
+                    if engine.canUndo {
+                        Button { engine.undo() } label: {
+                            Image(systemName: "arrow.uturn.backward")
+                        }
+                        .foregroundStyle(.secondary)
                     }
+                    Group {
+                        if engine.estimatedRemaining > 0 {
+                            Text("\(engine.estimatedRemaining) left")
+                        } else {
+                            Text("Almost done")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
             }
             .padding(.horizontal)
             .padding(.top)
@@ -164,18 +172,18 @@ struct PairwiseView: View {
 
             HStack(spacing: 20) {
                 Button("About equal") { engine.equal() }
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
 
                 Text("·")
                     .foregroundStyle(.tertiary)
-                    .font(.caption)
+                    .font(.subheadline)
 
                 Button("Skip") { engine.skip() }
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-            .padding(.top, 8)
+            .padding(.top, 12)
 
             Spacer(minLength: 20)
         }
@@ -241,7 +249,7 @@ struct PairwiseView: View {
                 Image(systemName: "arrow.right")
             }
         }
-        .font(.caption2)
+        .font(.caption)
         .foregroundStyle(.tertiary)
         .padding(.horizontal, 28)
     }
