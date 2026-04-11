@@ -46,6 +46,44 @@ final class PairwiseSession: ObservableObject {
 
     // MARK: - AI Preference
 
+    // MARK: - Ranking Mode
+
+    /// The axis by which the user compares pairs. Changes only the comparison question text.
+    /// Persisted via UserDefaults so the last-used mode is remembered across sessions.
+    enum RankingMode: String, CaseIterable {
+        case overall    = "overall"
+        case urgency    = "urgency"
+        case importance = "importance"
+
+        var displayName: String {
+            switch self {
+            case .overall:    return "Overall"
+            case .urgency:    return "Urgency"
+            case .importance: return "Importance"
+            }
+        }
+
+        /// The question shown at the top of PairwiseView during each comparison.
+        var comparisonQuestion: String {
+            switch self {
+            case .overall:    return "Which matters more?"
+            case .urgency:    return "Which is more urgent?"
+            case .importance: return "Which is more important?"
+            }
+        }
+    }
+
+    var rankingMode: RankingMode {
+        get {
+            RankingMode(rawValue: UserDefaults.standard.string(forKey: "ranking_mode") ?? "") ?? .overall
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "ranking_mode")
+        }
+    }
+
+    // MARK: - AI Preference
+
     /// Which AI backend to prefer for seeding. Persisted via UserDefaults.
     enum AIPreference: String, CaseIterable {
         case onDeviceFirst = "on_device_first"
