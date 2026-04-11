@@ -186,12 +186,27 @@ struct ListDetailView: View {
         do {
             if options.applyPriorities {
                 switch options.priorityMode {
-                case .tiered: try remindersManager.applyPriorities(items)
-                case .topN:   try remindersManager.applyTopNUrgent(items, count: options.urgentCount)
+                case .tiered:
+                    try remindersManager.applyPrioritiesCustom(
+                        items,
+                        highCount: options.highCount,
+                        mediumCount: options.mediumCount,
+                        lowCount: options.lowCount
+                    )
+                case .topN:
+                    try remindersManager.applyTopNUrgent(items, count: options.urgentCount)
                 }
             }
             if options.applyDueDates {
-                try remindersManager.applyDueDates(items, count: options.dueDateCount, dueDate: options.resolvedDueDate)
+                try remindersManager.applyDueDates(
+                    items,
+                    count: options.dueDateCount,
+                    dueDate: options.resolvedDueDate,
+                    includeTime: options.includeTime
+                )
+            }
+            if options.applyFlags {
+                try remindersManager.applyFlags(items, count: options.flagCount)
             }
         } catch {
             applyError = error.localizedDescription

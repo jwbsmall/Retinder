@@ -119,16 +119,27 @@ struct ResultsView: View {
         do {
             if options.applyPriorities {
                 switch options.priorityMode {
-                case .tiered: try remindersManager.applyPriorities(items)
-                case .topN:   try remindersManager.applyTopNUrgent(items, count: options.urgentCount)
+                case .tiered:
+                    try remindersManager.applyPrioritiesCustom(
+                        items,
+                        highCount: options.highCount,
+                        mediumCount: options.mediumCount,
+                        lowCount: options.lowCount
+                    )
+                case .topN:
+                    try remindersManager.applyTopNUrgent(items, count: options.urgentCount)
                 }
             }
             if options.applyDueDates {
                 try remindersManager.applyDueDates(
                     items,
                     count: options.dueDateCount,
-                    dueDate: options.resolvedDueDate
+                    dueDate: options.resolvedDueDate,
+                    includeTime: options.includeTime
                 )
+            }
+            if options.applyFlags {
+                try remindersManager.applyFlags(items, count: options.flagCount)
             }
             withAnimation(.spring(response: 0.4)) { applied = true }
         } catch {
@@ -212,16 +223,27 @@ private struct SessionRankedRow: View {
 // MARK: - Apply Options (shared with ListDetailView)
 
 struct ApplyOptions {
+    // MARK: Priorities
     enum PriorityMode { case tiered, topN }
 
     var applyPriorities: Bool = true
     var priorityMode: PriorityMode = .tiered
+    /// Top N → High (topN mode)
     var urgentCount: Int = 3
+    /// Custom tier counts for tiered mode (remainder gets None).
+    var highCount: Int = 1
+    var mediumCount: Int = 2
+    var lowCount: Int = 2
 
+    // MARK: Due Dates
     var applyDueDates: Bool = false
     var dueDateCount: Int = 3
     var dueTarget: DueTarget = .today
     var customDate: Date = .now
+    var includeTime: Bool = false
+    var dueTime: Date = Calendar.current.date(
+        bySettingHour: 9, minute: 0, second: 0, of: .now
+    ) ?? .now
 
     /// Calendar identifiers whose items should be skipped during write-back.
     var excludedListIDs: Set<String> = []
@@ -230,13 +252,23 @@ struct ApplyOptions {
 
     var resolvedDueDate: Date {
         let cal = Calendar.current
+        let dayStart: Date
         switch dueTarget {
-        case .today:    return cal.startOfDay(for: .now)
-        case .tomorrow: return cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: .now)) ?? .now
-        case .nextWeek: return cal.date(byAdding: .weekOfYear, value: 1, to: cal.startOfDay(for: .now)) ?? .now
-        case .custom:   return cal.startOfDay(for: customDate)
+        case .today:    dayStart = cal.startOfDay(for: .now)
+        case .tomorrow: dayStart = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: .now)) ?? .now
+        case .nextWeek: dayStart = cal.date(byAdding: .weekOfYear, value: 1, to: cal.startOfDay(for: .now)) ?? .now
+        case .custom:   dayStart = cal.startOfDay(for: customDate)
         }
+        guard includeTime else { return dayStart }
+        let timeComps = cal.dateComponents([.hour, .minute], from: dueTime)
+        return cal.date(bySettingHour: timeComps.hour ?? 9,
+                        minute: timeComps.minute ?? 0,
+                        second: 0, of: dayStart) ?? dayStart
     }
+
+    // MARK: Flags
+    var applyFlags: Bool = false
+    var flagCount: Int = 1
 }
 
 // MARK: - Apply Sheet (shared with ListDetailView)
@@ -298,59 +330,10 @@ struct ApplySheet: View {
                     }
                 }
 
-                Section {
-                    Toggle("Set priorities", isOn: $options.applyPriorities)
-                    if options.applyPriorities {
-                        Picker("Mode", selection: $options.priorityMode) {
-                            Text("Tiered").tag(ApplyOptions.PriorityMode.tiered)
-                            Text("Top N → High").tag(ApplyOptions.PriorityMode.topN)
-                        }
-                        .pickerStyle(.segmented)
-                        if options.priorityMode == .topN {
-                            Stepper(
-                                "Top \(options.urgentCount) → High, rest → None",
-                                value: $options.urgentCount,
-                                in: 1...max(1, itemCount)
-                            )
-                        }
-                    }
-                } header: {
-                    Text("Priorities")
-                } footer: {
-                    if options.applyPriorities {
-                        Text(options.priorityMode == .tiered
-                            ? "Top 25% → High, next 25% → Medium, next 25% → Low, rest → None."
-                            : "Items 1–\(options.urgentCount) → High priority. All others → None.")
-                    }
-                }
-
-                Section {
-                    Toggle("Set due dates", isOn: $options.applyDueDates)
-                    if options.applyDueDates {
-                        Stepper(
-                            "Top \(options.dueDateCount) item\(options.dueDateCount == 1 ? "" : "s")",
-                            value: $options.dueDateCount,
-                            in: 1...max(1, itemCount)
-                        )
-                        Picker("Due", selection: $options.dueTarget) {
-                            Text("Today").tag(ApplyOptions.DueTarget.today)
-                            Text("Tomorrow").tag(ApplyOptions.DueTarget.tomorrow)
-                            Text("Next week").tag(ApplyOptions.DueTarget.nextWeek)
-                            Text("Custom…").tag(ApplyOptions.DueTarget.custom)
-                        }
-                        if options.dueTarget == .custom {
-                            DatePicker("Date", selection: $options.customDate,
-                                       in: Date.now..., displayedComponents: .date)
-                        }
-                    }
-                } header: {
-                    Text("Due Dates")
-                } footer: {
-                    if options.applyDueDates {
-                        Text("Sets the due date on the top \(options.dueDateCount) item\(options.dueDateCount == 1 ? "" : "s"). Does not set a time or notification.")
-                    }
-                }
-            } // end Form
+                prioritiesSection
+                dueDatesSection
+                flagsSection
+            }
             .navigationTitle("Apply to Reminders")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -360,8 +343,108 @@ struct ApplySheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") { onApply(options) }
                         .bold()
-                        .disabled(!options.applyPriorities && !options.applyDueDates)
+                        .disabled(!options.applyPriorities && !options.applyDueDates && !options.applyFlags)
                 }
+            }
+        }
+    }
+
+    // MARK: - Sections
+
+    private var prioritiesSection: some View {
+        Section {
+            Toggle("Set priorities", isOn: $options.applyPriorities)
+            if options.applyPriorities {
+                Picker("Mode", selection: $options.priorityMode) {
+                    Text("Distribute").tag(ApplyOptions.PriorityMode.tiered)
+                    Text("Top N only").tag(ApplyOptions.PriorityMode.topN)
+                }
+                .pickerStyle(.segmented)
+                if options.priorityMode == .topN {
+                    Stepper(
+                        "Top \(options.urgentCount) → High, rest → None",
+                        value: $options.urgentCount,
+                        in: 1...max(1, itemCount)
+                    )
+                } else {
+                    Stepper("High: \(options.highCount)", value: $options.highCount,
+                            in: 0...max(0, itemCount - options.mediumCount - options.lowCount))
+                    Stepper("Medium: \(options.mediumCount)", value: $options.mediumCount,
+                            in: 0...max(0, itemCount - options.highCount - options.lowCount))
+                    Stepper("Low: \(options.lowCount)", value: $options.lowCount,
+                            in: 0...max(0, itemCount - options.highCount - options.mediumCount))
+                }
+            }
+        } header: {
+            Text("Priorities")
+        } footer: {
+            if options.applyPriorities {
+                if options.priorityMode == .topN {
+                    Text("Items 1–\(options.urgentCount) → High. All others → None.")
+                } else {
+                    let h = options.highCount, m = options.mediumCount, l = options.lowCount
+                    let none = max(0, itemCount - h - m - l)
+                    Text("High: \(h)  Medium: \(m)  Low: \(l)  None: \(none)")
+                }
+            }
+        }
+    }
+
+    private var dueDatesSection: some View {
+        Section {
+            Toggle("Set due dates", isOn: $options.applyDueDates)
+            if options.applyDueDates {
+                Stepper(
+                    "Top \(options.dueDateCount) item\(options.dueDateCount == 1 ? "" : "s")",
+                    value: $options.dueDateCount,
+                    in: 1...max(1, itemCount)
+                )
+                Picker("Due", selection: $options.dueTarget) {
+                    Text("Today").tag(ApplyOptions.DueTarget.today)
+                    Text("Tomorrow").tag(ApplyOptions.DueTarget.tomorrow)
+                    Text("Next week").tag(ApplyOptions.DueTarget.nextWeek)
+                    Text("Custom…").tag(ApplyOptions.DueTarget.custom)
+                }
+                if options.dueTarget == .custom {
+                    DatePicker("Date", selection: $options.customDate,
+                               in: Date.now...,
+                               displayedComponents: options.includeTime ? [.date, .hourAndMinute] : .date)
+                }
+                Toggle("Set time", isOn: $options.includeTime)
+                if options.includeTime && options.dueTarget != .custom {
+                    DatePicker("Time", selection: $options.dueTime,
+                               displayedComponents: .hourAndMinute)
+                }
+            }
+        } header: {
+            Text("Due Dates")
+        } footer: {
+            if options.applyDueDates {
+                let n = options.dueDateCount
+                if options.includeTime {
+                    Text("Sets date + time on the top \(n) item\(n == 1 ? "" : "s").")
+                } else {
+                    Text("Sets date (no time) on the top \(n) item\(n == 1 ? "" : "s").")
+                }
+            }
+        }
+    }
+
+    private var flagsSection: some View {
+        Section {
+            Toggle("Flag top items", isOn: $options.applyFlags)
+            if options.applyFlags {
+                Stepper(
+                    "Flag top \(options.flagCount) item\(options.flagCount == 1 ? "" : "s")",
+                    value: $options.flagCount,
+                    in: 1...max(1, itemCount)
+                )
+            }
+        } header: {
+            Text("Flags")
+        } footer: {
+            if options.applyFlags {
+                Text("Flags the top \(options.flagCount) item\(options.flagCount == 1 ? "" : "s") in Reminders. Clears flags from all others in the session.")
             }
         }
     }

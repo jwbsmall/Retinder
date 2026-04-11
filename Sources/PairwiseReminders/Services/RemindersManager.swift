@@ -154,7 +154,7 @@ final class RemindersManager: ObservableObject {
 
     // MARK: - Writing
 
-    /// Writes EKReminder priorities for the ranked items and commits to the store.
+    /// Writes EKReminder priorities using the default quartile distribution.
     /// `items` should be ordered from most to least important (index 0 = highest).
     func applyPriorities(_ items: [ReminderItem]) throws {
         let total = items.count
@@ -166,11 +166,39 @@ final class RemindersManager: ObservableObject {
         try store.commit()
     }
 
-    /// Sets the due date (date-only, no time) for the top `count` ranked items, then commits.
-    func applyDueDates(_ items: [ReminderItem], count: Int, dueDate: Date) throws {
+    /// Writes EKReminder priorities using custom per-tier counts.
+    /// Items 0..<highCount → High (1), then mediumCount → Medium (5), then lowCount → Low (9), rest → None (0).
+    func applyPrioritiesCustom(
+        _ items: [ReminderItem],
+        highCount: Int,
+        mediumCount: Int,
+        lowCount: Int
+    ) throws {
+        guard !items.isEmpty else { return }
+        for (index, item) in items.enumerated() {
+            if index < highCount {
+                item.ekReminder.priority = 1
+            } else if index < highCount + mediumCount {
+                item.ekReminder.priority = 5
+            } else if index < highCount + mediumCount + lowCount {
+                item.ekReminder.priority = 9
+            } else {
+                item.ekReminder.priority = 0
+            }
+            try store.save(item.ekReminder, commit: false)
+        }
+        try store.commit()
+    }
+
+    /// Sets the due date for the top `count` ranked items, then commits.
+    /// When `includeTime` is true, preserves the time component from `dueDate`.
+    func applyDueDates(_ items: [ReminderItem], count: Int, dueDate: Date, includeTime: Bool = false) throws {
         guard !items.isEmpty else { return }
         let n = min(count, items.count)
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: dueDate)
+        let fields: Set<Calendar.Component> = includeTime
+            ? [.year, .month, .day, .hour, .minute]
+            : [.year, .month, .day]
+        let components = Calendar.current.dateComponents(fields, from: dueDate)
         for (index, item) in items.enumerated() {
             if index < n {
                 item.ekReminder.dueDateComponents = components
