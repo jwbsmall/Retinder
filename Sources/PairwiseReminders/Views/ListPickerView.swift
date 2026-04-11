@@ -11,12 +11,19 @@ struct ListPickerView: View {
     @EnvironmentObject private var eloEngine: EloEngine
     @Environment(\.modelContext) private var modelContext
 
+    @Environment(\.dismiss) private var dismiss
+
     @State private var selectedListIDs: Set<String> = []
     @State private var errorMessage: String?
 
     var body: some View {
         content
             .navigationTitle("Choose Lists")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
             .task { await remindersManager.fetchLists() }
             .onAppear {
                 // Pre-select any lists forwarded from HomeView / ListDetailView.
