@@ -2,7 +2,8 @@ import SwiftUI
 import SwiftData
 import EventKit
 
-/// Home tab: shows all imported Reminders lists with ranking progress and staleness.
+/// Root view. Shows all imported Reminders lists with ranking progress and staleness.
+/// Houses the Settings sheet (gear icon) and Prioritise flow (fullScreenCover).
 struct HomeView: View {
 
     @EnvironmentObject private var remindersManager: RemindersManager
@@ -13,6 +14,8 @@ struct HomeView: View {
     @Query private var allRecords: [RankedItemRecord]
 
     @State private var selectedList: EKCalendar?
+    @State private var showPrioritise = false
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -27,7 +30,40 @@ struct HomeView: View {
             .navigationDestination(item: $selectedList) { calendar in
                 ListDetailView(calendar: calendar)
             }
-            .task { await remindersManager.syncWithEventKit(context: modelContext) }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack(spacing: 4) {
+                        Button {
+                            showPrioritise = true
+                        } label: {
+                            Image(systemName: "arrow.up.arrow.down.circle")
+                                .font(.title3)
+                        }
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Image(systemName: "gear")
+                                .font(.title3)
+                        }
+                    }
+                }
+            }
+            .fullScreenCover(isPresented: $showPrioritise) {
+                PrioritiseFlow()
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+            }
+            // Pre-select lists forwarded from ListDetailView and open the flow.
+            .onChange(of: session.pendingListIDs) { _, ids in
+                if !ids.isEmpty, !showPrioritise {
+                    showPrioritise = true
+                }
+            }
+            // Dismiss the Prioritise flow when the session resets to idle.
+            .onChange(of: session.phase) { _, phase in
+                if phase == .idle { showPrioritise = false }
+            }
         }
     }
 
@@ -72,6 +108,26 @@ struct HomeView: View {
 
     private func records(for calendar: EKCalendar) -> [RankedItemRecord] {
         allRecords.filter { $0.listCalendarIdentifier == calendar.calendarIdentifier }
+    }
+}
+
+// MARK: - Prioritise Flow
+
+/// Full-screen session flow: list selection → AI seeding → pairwise comparison → results.
+/// Presented as a fullScreenCover from HomeView to avoid gesture conflicts with PairwiseView.
+private struct PrioritiseFlow: View {
+
+    @EnvironmentObject private var session: PairwiseSession
+
+    var body: some View {
+        NavigationStack {
+            switch session.phase {
+            case .idle:      ListPickerView()
+            case .seeding:   FilteringView()
+            case .comparing: PairwiseView()
+            case .done:      ResultsView()
+            }
+        }
     }
 }
 
@@ -141,4 +197,3 @@ private struct ListRowView: View {
         }
     }
 }
-
