@@ -77,7 +77,7 @@ struct PairwiseView: View {
 
                 Group {
                     if engine.estimatedRemaining > 0 {
-                        Text("~\(engine.estimatedRemaining) left")
+                        Text("\(engine.estimatedRemaining) left")
                     } else {
                         Text("Almost done")
                     }
