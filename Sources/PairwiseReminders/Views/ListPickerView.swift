@@ -16,6 +16,14 @@ struct ListPickerView: View {
     @State private var selectedListIDs: Set<String> = []
     @State private var errorMessage: String?
 
+    /// Binding shim for the segmented picker — rankingMode is a computed UserDefaults property.
+    private var rankingModeBinding: Binding<PairwiseSession.RankingMode> {
+        Binding(
+            get: { session.rankingMode },
+            set: { session.rankingMode = $0 }
+        )
+    }
+
     var body: some View {
         content
             .navigationTitle("Choose Lists")
@@ -75,6 +83,19 @@ struct ListPickerView: View {
                             onToggle: { toggle(list) }
                         )
                     }
+                }
+                Section {
+                    Picker("Compare by", selection: rankingModeBinding) {
+                        ForEach(PairwiseSession.RankingMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Compare by")
+                } footer: {
+                    Text(session.rankingMode.comparisonQuestion)
+                        .foregroundStyle(.secondary)
                 }
             }
             .listStyle(.insetGrouped)

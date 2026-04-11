@@ -70,7 +70,7 @@ struct PairwiseView: View {
 
                 Spacer()
 
-                Text("Which matters more?")
+                Text(session.rankingMode.comparisonQuestion)
                     .font(.headline)
 
                 Spacer()
