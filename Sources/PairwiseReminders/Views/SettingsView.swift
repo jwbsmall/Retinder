@@ -3,15 +3,10 @@ import SwiftUI
 /// Settings tab: AI configuration.
 struct SettingsView: View {
 
-    @EnvironmentObject private var session: PairwiseSession
-    @EnvironmentObject private var remindersManager: RemindersManager
-
     @State private var apiKey: String = ""
     @State private var apiKeyMasked = true
     @State private var apiKeySaved = false
     @State private var connectionTest: ConnectionTestState = .idle
-    @State private var useOnDeviceModel: Bool = FoundationModelService.isAvailable
-    @State private var aiPreference: PairwiseSession.AIPreference = .onDeviceFirst
 
     private enum ConnectionTestState: Equatable {
         case idle, testing, ok, failed(String)
@@ -71,25 +66,10 @@ struct SettingsView: View {
                 connectionTestLabel
             }
 
-            // On-device model toggle
-            if FoundationModelService.isAvailable {
-                Toggle("Use on-device model", isOn: $useOnDeviceModel)
-                    .onChange(of: useOnDeviceModel) { _, _ in savePreferences() }
-            }
-
-            // Preference order
-            Picker("Prefer", selection: $aiPreference) {
-                ForEach(PairwiseSession.AIPreference.allCases, id: \.self) { pref in
-                    Text(pref.displayName).tag(pref)
-                }
-            }
-            .onChange(of: aiPreference) { _, newValue in
-                session.aiPreference = newValue
-            }
         } header: {
-            Text("AI")
+            Text("Anthropic API")
         } footer: {
-            Text("The Anthropic API key is stored securely in the Keychain. On-device AI requires a supported device and uses no network.")
+            Text("The API key is stored securely in the Keychain. AI seeding and method are configured each time you start a Prioritise session.")
         }
     }
 
@@ -116,9 +96,6 @@ struct SettingsView: View {
 
     private func loadSettings() {
         apiKey = KeychainService.load() ?? ""
-        aiPreference = session.aiPreference
-        useOnDeviceModel = FoundationModelService.isAvailable
-            && UserDefaults.standard.bool(forKey: "use_on_device_model")
     }
 
     private func testConnection() {
@@ -147,7 +124,5 @@ struct SettingsView: View {
         }
     }
 
-    private func savePreferences() {
-        UserDefaults.standard.set(useOnDeviceModel, forKey: "use_on_device_model")
-    }
+
 }

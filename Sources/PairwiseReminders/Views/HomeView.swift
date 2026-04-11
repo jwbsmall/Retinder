@@ -2,8 +2,9 @@ import SwiftUI
 import SwiftData
 import EventKit
 
-/// Root view. Shows all imported Reminders lists (or all items flattened) with ranking progress.
-/// Houses the Settings sheet (gear icon) and Prioritise flow (fullScreenCover).
+/// Root view. Shows all Reminders lists as collapsible rows.
+/// Lists are collapsed by default; tap a header to expand and see ranked items.
+/// Select lists via the circle checkmark, then tap the prominent Prioritise button.
 struct HomeView: View {
 
     @EnvironmentObject private var remindersManager: RemindersManager
@@ -16,50 +17,51 @@ struct HomeView: View {
     @State private var selectedList: EKCalendar?
     @State private var showPrioritise = false
     @State private var showSettings = false
-    @State private var viewMode: ViewMode = .lists
+    @State private var showPrioritiseOptions = false
 
-    private enum ViewMode { case lists, all }
+    @State private var expandedListIDs: Set<String> = []
+    @State private var selectedListIDs: Set<String> = []
+    @State private var itemsByList: [String: [ReminderItem]] = [:]
+    @State private var loadingListIDs: Set<String> = []
+
+    private var allExpanded: Bool {
+        !remindersManager.lists.isEmpty &&
+        remindersManager.lists.allSatisfy { expandedListIDs.contains($0.calendarIdentifier) }
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Filter controls — switch between the two home views.
-                Picker("View", selection: $viewMode) {
-                    Text("Lists").tag(ViewMode.lists)
-                    Text("All Reminders").tag(ViewMode.all)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(Color(.systemGroupedBackground))
-
                 if remindersManager.lists.isEmpty {
                     emptyState
-                } else if viewMode == .lists {
-                    listsContent
+                        .frame(maxHeight: .infinity)
                 } else {
-                    AllRemindersView(onPrioritise: openPrioritise)
+                    listContent
+                        .frame(maxHeight: .infinity)
                 }
+                Divider()
+                prioritiseButton
             }
             .navigationTitle("Retinder")
             .navigationDestination(item: $selectedList) { calendar in
                 ListDetailView(calendar: calendar)
             }
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(allExpanded ? "Collapse All" : "Expand All") {
+                        if allExpanded {
+                            expandedListIDs = []
+                        } else {
+                            let ids = Set(remindersManager.lists.map(\.calendarIdentifier))
+                            expandedListIDs = ids
+                            ids.forEach { loadItemsIfNeeded(for: $0) }
+                        }
+                    }
+                    .font(.subheadline)
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 4) {
-                        Button {
-                            showPrioritise = true
-                        } label: {
-                            Image(systemName: "arrow.up.arrow.down.circle")
-                                .font(.title3)
-                        }
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Image(systemName: "gear")
-                                .font(.title3)
-                        }
+                    Button { showSettings = true } label: {
+                        Image(systemName: "gear")
                     }
                 }
             }
@@ -69,39 +71,133 @@ struct HomeView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView()
             }
-            // Pre-select lists forwarded from ListDetailView / AllRemindersView.
-            .onChange(of: session.pendingListIDs) { _, ids in
-                if !ids.isEmpty, !showPrioritise {
+            .sheet(isPresented: $showPrioritiseOptions) {
+                PrioritiseOptionsSheet(listIDs: selectedListIDs) {
+                    showPrioritiseOptions = false
                     showPrioritise = true
+                    Task {
+                        await session.start(
+                            listIDs: selectedListIDs,
+                            remindersManager: remindersManager,
+                            eloEngine: eloEngine,
+                            context: modelContext
+                        )
+                    }
                 }
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
             }
-            // Dismiss the Prioritise flow when the session resets to idle.
+            // Bridge: when ListDetailView sets pendingListIDs, pre-select + open options.
+            .onChange(of: session.pendingListIDs) { _, ids in
+                guard !ids.isEmpty else { return }
+                selectedListIDs.formUnion(ids)
+                session.pendingListIDs = []
+                if !showPrioritise { showPrioritiseOptions = true }
+            }
+            // Dismiss fullScreenCover when session resets to idle.
             .onChange(of: session.phase) { _, phase in
                 if phase == .idle { showPrioritise = false }
+            }
+            .task { await remindersManager.fetchLists() }
+            .refreshable {
+                itemsByList = [:]
+                loadingListIDs = []
+                await remindersManager.syncWithEventKit(context: modelContext)
             }
         }
     }
 
-    // MARK: - Lists Content
+    // MARK: - List Content
 
-    private var listsContent: some View {
+    private var listContent: some View {
         List {
-            Section("Your Lists") {
-                ForEach(remindersManager.lists, id: \.calendarIdentifier) { calendar in
-                    ListRowView(
+            ForEach(remindersManager.lists, id: \.calendarIdentifier) { calendar in
+                let id = calendar.calendarIdentifier
+                let listRecords = records(for: calendar)
+
+                DisclosureGroup(isExpanded: expandBinding(for: id)) {
+                    expandedContent(for: id, calendar: calendar, records: listRecords)
+                } label: {
+                    CollapsedListHeader(
                         calendar: calendar,
-                        records: records(for: calendar)
+                        records: listRecords,
+                        isSelected: selectedListIDs.contains(id),
+                        onToggleSelect: { toggleSelect(id) }
                     )
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedList = calendar }
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .refreshable {
-            await remindersManager.syncWithEventKit(context: modelContext)
+    }
+
+    @ViewBuilder
+    private func expandedContent(
+        for id: String,
+        calendar: EKCalendar,
+        records: [RankedItemRecord]
+    ) -> some View {
+        if loadingListIDs.contains(id) {
+            HStack { Spacer(); ProgressView(); Spacer() }
+                .padding(.vertical, 8)
+                .listRowBackground(Color.clear)
+        } else {
+            let items = itemsByList[id] ?? []
+            let ranked = items.filter { $0.comparisonCount > 0 }
+                              .sorted { $0.eloRating > $1.eloRating }
+            let unranked = items.filter { $0.comparisonCount == 0 }
+            let total = ranked.count
+
+            if ranked.isEmpty && unranked.isEmpty {
+                Text("No incomplete reminders")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .listRowBackground(Color.clear)
+            } else {
+                ForEach(Array(ranked.enumerated()), id: \.element.id) { index, item in
+                    ExpandedItemRow(item: item, rank: index + 1, total: total)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedList = calendar }
+                }
+                if !unranked.isEmpty {
+                    Text("\(unranked.count) unranked item\(unranked.count == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .listRowBackground(Color.clear)
+                }
+            }
         }
     }
+
+    // MARK: - Prioritise Button
+
+    private var prioritiseButton: some View {
+        VStack(spacing: 0) {
+            Button {
+                showPrioritiseOptions = true
+            } label: {
+                Text(prioritiseLabel)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(selectedListIDs.isEmpty ? Color(.systemGray4) : Color.blue)
+                    .foregroundStyle(selectedListIDs.isEmpty ? Color.secondary : .white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 12)
+            .disabled(selectedListIDs.isEmpty)
+        }
+        .background(.regularMaterial)
+    }
+
+    private var prioritiseLabel: String {
+        if selectedListIDs.isEmpty { return "Select lists to prioritise" }
+        let n = selectedListIDs.count
+        return "Prioritise \(n == 1 ? "1 List" : "\(n) Lists")"
+    }
+
+    // MARK: - Empty State
 
     private var emptyState: some View {
         VStack(spacing: 16) {
@@ -116,7 +212,6 @@ struct HomeView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Helpers
@@ -125,19 +220,45 @@ struct HomeView: View {
         allRecords.filter { $0.listCalendarIdentifier == calendar.calendarIdentifier }
     }
 
-    /// Called by AllRemindersView when the user taps "Prioritise N items".
-    /// Sets pendingListIDs to the distinct lists of the selected items so the
-    /// Prioritise flow opens pre-populated. Note: this brings ALL items from
-    /// those lists into the session, not just the selected subset (v1 limitation).
-    private func openPrioritise(listIDs: Set<String>) {
-        session.pendingListIDs = listIDs
+    private func toggleSelect(_ id: String) {
+        if selectedListIDs.contains(id) {
+            selectedListIDs.remove(id)
+        } else {
+            selectedListIDs.insert(id)
+        }
+    }
+
+    private func expandBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { expandedListIDs.contains(id) },
+            set: { expanding in
+                if expanding {
+                    expandedListIDs.insert(id)
+                    loadItemsIfNeeded(for: id)
+                } else {
+                    expandedListIDs.remove(id)
+                }
+            }
+        )
+    }
+
+    private func loadItemsIfNeeded(for id: String) {
+        guard itemsByList[id] == nil, !loadingListIDs.contains(id) else { return }
+        loadingListIDs.insert(id)
+        Task {
+            let loaded = (try? await remindersManager.fetchIncompleteReminders(
+                from: [id], context: modelContext
+            )) ?? []
+            itemsByList[id] = loaded
+            loadingListIDs.remove(id)
+        }
     }
 }
 
 // MARK: - Prioritise Flow
 
-/// Full-screen session flow: list selection → AI seeding → pairwise comparison → results.
-/// Presented as a fullScreenCover from HomeView to avoid gesture conflicts with PairwiseView.
+/// Full-screen session flow: AI seeding → pairwise comparison → results.
+/// List selection and session options are handled before this cover opens.
 private struct PrioritiseFlow: View {
 
     @EnvironmentObject private var session: PairwiseSession
@@ -145,7 +266,7 @@ private struct PrioritiseFlow: View {
     var body: some View {
         NavigationStack {
             switch session.phase {
-            case .idle:      ListPickerView()
+            case .idle:      EmptyView()
             case .seeding:   FilteringView()
             case .comparing: PairwiseView()
             case .done:      ResultsView()
@@ -154,280 +275,171 @@ private struct PrioritiseFlow: View {
     }
 }
 
-// MARK: - All Reminders View
+// MARK: - Prioritise Options Sheet
 
-/// Flattened cross-list view of all reminders, sorted by Elo rating.
-/// Ranked items (comparisonCount > 0) are shown first; unranked items below.
-/// Multi-select → "Prioritise N items" collects the distinct list IDs and
-/// opens the Prioritise flow pre-populated with those lists.
-private struct AllRemindersView: View {
+/// Pre-session configuration: compare-by mode and AI/pairwise method.
+/// Tapping Start applies settings and triggers the session.
+private struct PrioritiseOptionsSheet: View {
 
-    var onPrioritise: (Set<String>) -> Void
+    let listIDs: Set<String>
+    let onStart: () -> Void
 
-    @EnvironmentObject private var remindersManager: RemindersManager
-    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var session: PairwiseSession
+    @Environment(\.dismiss) private var dismiss
 
-    @State private var items: [ReminderItem] = []
-    @State private var isLoading = true
-    @State private var selectedIDs = Set<String>()
-    @State private var editMode: EditMode = .inactive
-    @State private var editingItem: ReminderItem?
+    @State private var rankingMode: PairwiseSession.RankingMode
+    @State private var useAI: Bool
 
-    private var rankedItems: [ReminderItem] {
-        items.filter { $0.comparisonCount > 0 }.sorted { $0.eloRating > $1.eloRating }
-    }
-
-    private var unrankedItems: [ReminderItem] {
-        items.filter { $0.comparisonCount == 0 }
+    init(listIDs: Set<String>, onStart: @escaping () -> Void) {
+        self.listIDs = listIDs
+        self.onStart = onStart
+        _rankingMode = State(initialValue:
+            PairwiseSession.RankingMode(rawValue: UserDefaults.standard.string(forKey: "ranking_mode") ?? "") ?? .overall
+        )
+        _useAI = State(initialValue:
+            (UserDefaults.standard.string(forKey: "ai_preference") ?? "") != PairwiseSession.AIPreference.none.rawValue
+        )
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Group {
-                if isLoading {
-                    ProgressView("Loading…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if items.isEmpty {
-                    allEmptyState
-                } else {
-                    itemList
-                }
-            }
-
-            // Bottom bar: appears when items are selected in edit mode.
-            if editMode == .active && !selectedIDs.isEmpty {
-                prioritiseBar
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                EditButton()
-            }
-        }
-        .environment(\.editMode, $editMode)
-        .onChange(of: editMode) { _, mode in
-            if mode == .inactive { selectedIDs = [] }
-        }
-        .task { await load() }
-        .sheet(item: $editingItem) { item in
-            ReminderEditSheet(item: item)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-                .onDisappear { Task { await load() } }
-        }
-    }
-
-    // MARK: - Item List
-
-    private var itemList: some View {
-        List(selection: $selectedIDs) {
-            if !rankedItems.isEmpty {
-                Section("Ranked — \(rankedItems.count)") {
-                    ForEach(rankedItems) { item in
-                        AllRemindersRow(item: item, rank: rankIndex(item))
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                if editMode == .inactive { editingItem = item }
-                            }
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Compare by", selection: $rankingMode) {
+                        ForEach(PairwiseSession.RankingMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
                     }
-                }
-            }
-            if !unrankedItems.isEmpty {
-                Section("Unranked — \(unrankedItems.count)") {
-                    ForEach(unrankedItems) { item in
-                        AllRemindersRow(item: item, rank: nil)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                if editMode == .inactive { editingItem = item }
-                            }
-                    }
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-        .refreshable { await load() }
-    }
-
-    private var allEmptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "checkmark.circle")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("No reminders")
-                .font(.title2.bold())
-            Text("Incomplete reminders from all your lists will appear here.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var prioritiseBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            Button {
-                let listIDs = Set(
-                    items
-                        .filter { selectedIDs.contains($0.id) }
-                        .compactMap { $0.ekReminder.calendar?.calendarIdentifier }
-                )
-                editMode = .inactive
-                selectedIDs = []
-                onPrioritise(listIDs)
-            } label: {
-                Text("Prioritise \(selectedIDs.count) item\(selectedIDs.count == 1 ? "" : "s")…")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .padding()
-        }
-        .background(.regularMaterial)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        .animation(.spring(response: 0.3), value: selectedIDs.isEmpty)
-    }
-
-    // MARK: - Helpers
-
-    private func rankIndex(_ item: ReminderItem) -> Int? {
-        rankedItems.firstIndex(where: { $0.id == item.id }).map { $0 + 1 }
-    }
-
-    private func load() async {
-        isLoading = true
-        let allListIDs = Set(remindersManager.lists.map(\.calendarIdentifier))
-        items = (try? await remindersManager.fetchIncompleteReminders(
-            from: allListIDs, context: modelContext
-        )) ?? []
-        isLoading = false
-    }
-}
-
-// MARK: - All Reminders Row
-
-private struct AllRemindersRow: View {
-    let item: ReminderItem
-    let rank: Int?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            if let rank {
-                ZStack {
-                    Circle()
-                        .fill(badgeColor(rank: rank))
-                        .frame(width: 32, height: 32)
-                    Text("\(rank)")
-                        .font(.system(.subheadline, design: .rounded).bold())
-                        .foregroundStyle(.white)
-                }
-            } else {
-                Circle()
-                    .fill(Color(.systemGray4))
-                    .frame(width: 32, height: 32)
-                    .overlay(
-                        Image(systemName: "minus")
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
-                    )
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
-                    .font(.body)
-                    .lineLimit(2)
-                HStack(spacing: 6) {
-                    // List colour dot + name
-                    if let cal = item.ekReminder.calendar {
-                        Circle()
-                            .fill(Color(cgColor: cal.cgColor))
-                            .frame(width: 8, height: 8)
-                    }
-                    Text(item.listName)
-                        .font(.caption)
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Compare by")
+                } footer: {
+                    Text(rankingMode.comparisonQuestion)
                         .foregroundStyle(.secondary)
-                    if let due = item.dueDate {
-                        Text("·").foregroundStyle(.tertiary).font(.caption)
-                        Text(due.formatted(.dateTime.day().month()))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Toggle("Use AI to pre-rank items", isOn: $useAI)
+                } header: {
+                    Text("AI seeding")
+                } footer: {
+                    Text(useAI
+                        ? "AI will estimate an initial ranking before you start comparing pairs."
+                        : "Items start with equal ratings. No AI is used.")
+                    .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Button {
+                        applyAndStart()
+                    } label: {
+                        Text("Start Prioritising \(listIDs.count == 1 ? "1 List" : "\(listIDs.count) Lists")")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
                     }
+                    .buttonStyle(.borderedProminent)
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+            }
+            .navigationTitle("Prioritise")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
                 }
             }
-
-            Spacer()
         }
-        .padding(.vertical, 2)
     }
 
-    private func badgeColor(rank: Int) -> Color {
-        switch rank {
-        case 1: return .blue
-        case 2: return .indigo
-        case 3: return .purple
-        default: return Color(.systemGray3)
+    private func applyAndStart() {
+        session.rankingMode = rankingMode
+        if useAI {
+            // Prefer on-device if available, else API, using existing preference as a hint.
+            if session.aiPreference == .none {
+                session.aiPreference = FoundationModelService.isAvailable ? .onDeviceFirst : .apiFirst
+            }
+        } else {
+            session.aiPreference = .none
         }
+        dismiss()
+        onStart()
     }
 }
 
-// MARK: - List Row
+// MARK: - Collapsed List Header
 
-private struct ListRowView: View {
+private struct CollapsedListHeader: View {
     let calendar: EKCalendar
     let records: [RankedItemRecord]
+    let isSelected: Bool
+    let onToggleSelect: () -> Void
 
-    private var rankedCount: Int { records.filter { $0.comparisonCount > 0 }.count }
-    private var totalCount: Int { records.count }
+    private var rankedRecords: [RankedItemRecord] {
+        records.filter { $0.comparisonCount > 0 }.sorted { $0.eloRating > $1.eloRating }
+    }
+    private var rankedCount: Int { rankedRecords.count }
+    private var unrankedCount: Int { records.filter { $0.comparisonCount == 0 }.count }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(Color(cgColor: calendar.cgColor))
-                .frame(width: 12, height: 12)
-
+        HStack(spacing: 10) {
+            // List colour + name
             VStack(alignment: .leading, spacing: 4) {
-                Text(calendar.title)
-                    .font(.body.bold())
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color(cgColor: calendar.cgColor))
+                        .frame(width: 10, height: 10)
+                    Text(calendar.title)
+                        .font(.body.bold())
+                        .foregroundStyle(.primary)
+                }
 
                 if rankedCount > 0 {
-                    Text("\(rankedCount) ranked")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Text("\(rankedCount) ranked")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if unrankedCount > 0 {
+                            Text("· \(unrankedCount) unranked")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
                     eloSparkline
-                } else if totalCount > 0 {
-                    Text("\(totalCount) items")
+                    tierSummary
+                } else if unrankedCount > 0 {
+                    Text("\(unrankedCount) item\(unrankedCount == 1 ? "" : "s") · not yet ranked")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("No items")
+                    Text("No incomplete reminders")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                 }
             }
 
             Spacer()
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+
+            // Selection toggle — high priority gesture prevents DisclosureGroup from intercepting
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? .blue : Color(.tertiaryLabel))
+                .font(.title3)
+                .animation(.spring(response: 0.25), value: isSelected)
+                .highPriorityGesture(TapGesture().onEnded { onToggleSelect() })
         }
         .padding(.vertical, 4)
     }
 
     @ViewBuilder
     private var eloSparkline: some View {
-        let ranked = records.filter { $0.comparisonCount > 0 }
-                            .sorted { $0.eloRating > $1.eloRating }
-        if ranked.count >= 2 {
-            let maxR = ranked[0].eloRating
-            let minR = ranked[ranked.count - 1].eloRating
+        if rankedRecords.count >= 2 {
+            let maxR = rankedRecords[0].eloRating
+            let minR = rankedRecords[rankedRecords.count - 1].eloRating
             let range = max(maxR - minR, 1.0)
             let listColor = Color(cgColor: calendar.cgColor)
             HStack(alignment: .bottom, spacing: 2) {
-                ForEach(Array(ranked.prefix(10).enumerated()), id: \.offset) { _, record in
+                ForEach(Array(rankedRecords.prefix(10).enumerated()), id: \.offset) { _, record in
                     let h = 4.0 + 12.0 * ((record.eloRating - minR) / range)
                     Capsule()
                         .fill(listColor.opacity(0.75))
@@ -435,6 +447,100 @@ private struct ListRowView: View {
                 }
             }
             .frame(height: 16, alignment: .bottom)
+        }
+    }
+
+    @ViewBuilder
+    private var tierSummary: some View {
+        let n = rankedCount
+        if n > 0 {
+            let q = max(n / 4, 1)
+            let h = q, m = q, l = q
+            let none = n - h - m - l
+            HStack(spacing: 10) {
+                tierBadge("H", count: h, color: .red)
+                tierBadge("M", count: m, color: .orange)
+                tierBadge("L", count: l, color: .yellow)
+                if none > 0 {
+                    tierBadge("–", count: none, color: Color(.secondaryLabel))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tierBadge(_ label: String, count: Int, color: Color) -> some View {
+        HStack(spacing: 2) {
+            Text(label)
+                .font(.caption2.bold())
+                .foregroundStyle(color)
+            Text("\(count)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - Expanded Item Row
+
+private struct ExpandedItemRow: View {
+    let item: ReminderItem
+    let rank: Int
+    let total: Int
+
+    private var priorityLabel: String {
+        let q = max(total / 4, 1)
+        let r = rank - 1  // 0-based
+        if r < q         { return "High" }
+        if r < q * 2     { return "Medium" }
+        if r < q * 3     { return "Low" }
+        return "None"
+    }
+
+    private var priorityColor: Color {
+        let q = max(total / 4, 1)
+        let r = rank - 1
+        if r < q         { return .red }
+        if r < q * 2     { return .orange }
+        if r < q * 3     { return .yellow }
+        return Color(.secondaryLabel)
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(badgeColor)
+                    .frame(width: 28, height: 28)
+                Text("\(rank)")
+                    .font(.system(.caption, design: .rounded).bold())
+                    .foregroundStyle(.white)
+            }
+
+            Text(item.title)
+                .font(.subheadline)
+                .lineLimit(1)
+                .foregroundStyle(.primary)
+
+            Spacer()
+
+            Text(priorityLabel)
+                .font(.caption2.bold())
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(priorityColor.opacity(0.15))
+                .foregroundStyle(priorityColor)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var badgeColor: Color {
+        switch rank {
+        case 1: return .blue
+        case 2: return .indigo
+        case 3: return .purple
+        default: return Color(.systemGray3)
         }
     }
 }
