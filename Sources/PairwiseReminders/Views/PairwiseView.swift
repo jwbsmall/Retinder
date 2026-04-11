@@ -160,7 +160,7 @@ struct PairwiseView: View {
                     .foregroundStyle(.tertiary)
                 Spacer()
             }
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
 
             // Large bottom card — swipe right to pick it, swipe left to pick top card
             swipeCard(item: bottomItem, versus: topItem)
@@ -170,19 +170,27 @@ struct PairwiseView: View {
             swipeHints
                 .padding(.top, 10)
 
-            HStack(spacing: 20) {
-                Button("About equal") { engine.equal() }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Button {
+                    engine.equal()
+                } label: {
+                    Label("Equal", systemImage: "equal")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.secondary)
 
-                Text("·")
-                    .foregroundStyle(.tertiary)
-                    .font(.subheadline)
-
-                Button("Skip") { engine.skip() }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Button {
+                    engine.skip()
+                } label: {
+                    Label("Skip", systemImage: "forward.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.secondary)
             }
+            .controlSize(.regular)
+            .padding(.horizontal)
             .padding(.top, 12)
 
             Spacer(minLength: 20)
@@ -219,7 +227,7 @@ struct PairwiseView: View {
     @ViewBuilder
     private func swipeOverlay(normalized: CGFloat) -> some View {
         let magnitude = abs(normalized)
-        if magnitude > 0.25 {
+        if magnitude > 0.12 {
             let pickingThis = normalized > 0
             RoundedRectangle(cornerRadius: 18)
                 .fill((pickingThis ? Color.green : Color.blue).opacity(magnitude * 0.3))
@@ -241,17 +249,20 @@ struct PairwiseView: View {
         HStack {
             HStack(spacing: 4) {
                 Image(systemName: "arrow.left")
-                Text("top one")
+                    .font(.caption.bold())
+                Text("Pick top card")
+                    .font(.caption)
             }
             Spacer()
             HStack(spacing: 4) {
-                Text("this one")
+                Text("Pick this card")
+                    .font(.caption)
                 Image(systemName: "arrow.right")
+                    .font(.caption.bold())
             }
         }
-        .font(.caption)
-        .foregroundStyle(.tertiary)
-        .padding(.horizontal, 28)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 24)
     }
 
     // MARK: - Compact Top Card
@@ -268,14 +279,23 @@ struct PairwiseView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Image(systemName: "hand.tap")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            VStack(alignment: .trailing, spacing: 3) {
+                Image(systemName: "cursorarrow.click")
+                    .font(.subheadline)
+                    .foregroundStyle(.blue.opacity(0.6))
+                Text("Tap to pick")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(Color(.secondarySystemBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.blue.opacity(0.18), lineWidth: 1)
+                )
         )
     }
 }

@@ -18,6 +18,11 @@ final class RemindersManager: ObservableObject {
 
     init() {
         authorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
+        // Load lists synchronously if access is already granted so HomeView shows
+        // immediately on launch without waiting for any async work.
+        if authorizationStatus == .fullAccess {
+            lists = store.calendars(for: .reminder)
+        }
     }
 
     // MARK: - Access

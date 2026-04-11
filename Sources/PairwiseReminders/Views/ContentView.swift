@@ -12,14 +12,11 @@ struct ContentView: View {
     }
 
     private func bootstrap() async {
-        switch remindersManager.authorizationStatus {
-        case .notDetermined:
+        if remindersManager.authorizationStatus == .notDetermined {
             _ = await remindersManager.requestAccess()
-        case .fullAccess:
-            await remindersManager.fetchLists()
-        default:
-            break
         }
+        // syncWithEventKit calls fetchLists() internally and updates SwiftData.
+        // Lists may already be populated from init() if access was pre-granted.
         await remindersManager.syncWithEventKit(context: modelContext)
     }
 }

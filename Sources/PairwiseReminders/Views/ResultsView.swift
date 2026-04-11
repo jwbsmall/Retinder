@@ -375,19 +375,22 @@ struct ApplySheet: View {
                             in: 0...max(0, itemCount - options.highCount - options.lowCount))
                     Stepper("Low: \(options.lowCount)", value: $options.lowCount,
                             in: 0...max(0, itemCount - options.highCount - options.mediumCount))
+                    let noneCount = max(0, itemCount - options.highCount - options.mediumCount - options.lowCount)
+                    HStack {
+                        Text("None (remainder)")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(noneCount)")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
                 }
             }
         } header: {
             Text("Priorities")
         } footer: {
-            if options.applyPriorities {
-                if options.priorityMode == .topN {
-                    Text("Items 1–\(options.urgentCount) → High. All others → None.")
-                } else {
-                    let h = options.highCount, m = options.mediumCount, l = options.lowCount
-                    let none = max(0, itemCount - h - m - l)
-                    Text("High: \(h)  Medium: \(m)  Low: \(l)  None: \(none)")
-                }
+            if options.applyPriorities && options.priorityMode == .topN {
+                Text("Items 1–\(options.urgentCount) → High. All others → None.")
             }
         }
     }
