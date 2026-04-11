@@ -3,9 +3,10 @@ import SwiftData
 
 /// Owns the SwiftData ModelContainer for the app. Access via `PersistenceController.shared`.
 ///
-/// The container holds two models:
+/// The container holds three models:
 /// - `RankedItemRecord`: Elo rating metadata per reminder.
 /// - `ListConfig`: Per-list import and write-back configuration.
+/// - `ComparisonRecord`: Individual pairwise comparison decisions for the history log.
 @MainActor
 final class PersistenceController {
 
@@ -14,7 +15,7 @@ final class PersistenceController {
     let container: ModelContainer
 
     private init() {
-        let schema = Schema([RankedItemRecord.self, ListConfig.self])
+        let schema = Schema([RankedItemRecord.self, ListConfig.self, ComparisonRecord.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         do {
             container = try ModelContainer(for: schema, configurations: config)
