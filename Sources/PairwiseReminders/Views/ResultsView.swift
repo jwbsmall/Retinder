@@ -17,7 +17,9 @@ struct ResultsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+                .fixedSize(horizontal: false, vertical: true)
             rankedList
+                .frame(maxHeight: .infinity)
             bottomBar
         }
         .navigationTitle("Session Results")
@@ -47,8 +49,8 @@ struct ResultsView: View {
 
     private var header: some View {
         VStack(spacing: 6) {
-            if session.seedingFailed {
-                Label("AI seeding was unavailable", systemImage: "info.circle")
+            if session.seedingFailed && session.aiPreference != .none {
+                Label("AI seeding was unavailable — rankings may be less accurate", systemImage: "info.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 8)

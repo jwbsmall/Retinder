@@ -204,6 +204,7 @@ The API key is entered in `SettingsView` (gear icon in HomeView). No onboarding 
 - After pushing a completed batch of work to a feature branch, **always create a GitHub PR** using `mcp__github__create_pull_request` — unless one already exists for that branch, or the user explicitly asks not to.
 - Check for an existing open PR with `mcp__github__list_pull_requests` before creating a new one.
 - PR title should be concise (≤70 chars). Body should bullet the changes and include a test plan checklist.
+- **Every user request that is not implemented immediately must have a GitHub issue.** Before ending a working session, check the conversation for any unresolved requests and create issues for them. Title: concise description. Body: the user's words + relevant context.
 
 ---
 
