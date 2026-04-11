@@ -9,12 +9,14 @@ import SwiftData
 /// 2. The UI calls `choose(winner:)`, `equal()`, or `skip()` to resume the sort.
 /// 3. When the sort finishes, Elo ratings are assigned from the final rank and
 ///    `isConverged` becomes true, signalling PairwiseView to transition to results.
-/// 4. "Done for now" calls `finish()` at any time — the sort is cancelled and items
-///    are returned sorted by their current (AI-seeded) Elo ratings.
+/// 4. "Done for now" calls `finish()` at any time — partial Elo deltas accumulated
+///    during the session produce a meaningful partial ordering.
+/// 5. `undo()` replays the sort up to the prior decision, then suspends at the new frontier.
 ///
 /// Guarantees:
 /// - No pair is ever shown twice (each merge step visits a pair exactly once)
 /// - Worst-case comparison count: T(n) = T(⌊n/2⌋) + T(⌈n/2⌉) + (n−1), e.g. 5 for n=4
+/// - Bail-out at any point produces a meaningful partial ordering via live Elo deltas
 @MainActor
 final class EloEngine: ObservableObject {
 
@@ -35,12 +37,22 @@ final class EloEngine: ObservableObject {
     /// True once `start` has been called.
     @Published private(set) var isStarted: Bool = false
 
+    /// True when at least one comparison has been made and can be undone.
+    @Published private(set) var canUndo: Bool = false
+
     // MARK: - Private State
 
     private var items: [ReminderItem] = []
+    /// Snapshot of items with original Elo ratings at the moment start() is called.
+    /// Used to restore clean state on undo before re-applying remaining deltas.
+    private var startItems: [ReminderItem] = []
     private var sortTask: Task<Void, Never>?
     private var pendingContinuation: CheckedContinuation<String, Never>?
     private var totalComparisons: Int = 0
+
+    /// Ordered record of every user decision. Each entry stores both IDs so Elo
+    /// deltas can be re-applied correctly after an undo resets items to startItems.
+    private var decisionHistory: [(pairKey: String, winnerID: String, loserID: String)] = []
 
     // MARK: - Public Interface
 
@@ -48,12 +60,93 @@ final class EloEngine: ObservableObject {
     /// so the sort's first comparisons are the closest calls — the most interesting ones.
     func start(with items: [ReminderItem]) {
         guard !isStarted else { return }
-        isStarted = true
         comparisonCount = 0
         self.items = items.sorted { $0.eloRating > $1.eloRating }
+        startItems = self.items
         totalComparisons = worstCaseComparisons(self.items.count)
         estimatedRemaining = totalComparisons
+        launchSort()
+    }
 
+    /// The user picked `winner` as higher priority. Resumes the suspended sort
+    /// and updates live Elo ratings so bail-out always returns a meaningful order.
+    func choose(winner: ReminderItem) {
+        guard let pair = currentPair, pendingContinuation != nil else { return }
+        let loser = pair.0.id == winner.id ? pair.1 : pair.0
+
+        // Live Elo delta — ensures "Done for now" returns a meaningful partial ordering.
+        applyEloDelta(winnerID: winner.id, loserID: loser.id)
+
+        decisionHistory.append((pairKey(pair.0, pair.1), winner.id, loser.id))
+        canUndo = true
+
+        pendingContinuation?.resume(returning: winner.id)
+        pendingContinuation = nil
+        comparisonCount += 1
+        estimatedRemaining = max(0, totalComparisons - comparisonCount)
+    }
+
+    /// The user considers the two items equal. Breaks the tie using the AI-seeded Elo order.
+    func equal() {
+        guard let pair = currentPair else { return }
+        let tiebreaker = pair.0.eloRating >= pair.1.eloRating ? pair.0 : pair.1
+        choose(winner: tiebreaker)
+    }
+
+    /// Skips without expressing a preference. Behaves like `equal()`.
+    func skip() { equal() }
+
+    /// Undoes the last comparison. Cancels the running sort, restores Elo ratings to the
+    /// pre-decision state, and restarts the sort — auto-replaying all remaining history
+    /// before suspending at the new comparison frontier.
+    func undo() {
+        guard !decisionHistory.isEmpty else { return }
+        decisionHistory.removeLast()
+        comparisonCount = max(0, comparisonCount - 1)
+        estimatedRemaining = min(totalComparisons, estimatedRemaining + 1)
+        canUndo = !decisionHistory.isEmpty
+
+        cancelSort()
+
+        // Restore original ratings, then replay Elo deltas for decisions still in history.
+        items = startItems
+        for decision in decisionHistory {
+            applyEloDelta(winnerID: decision.winnerID, loserID: decision.loserID)
+        }
+
+        isStarted = false
+        isConverged = false
+        launchSort()
+    }
+
+    /// Cancels the sort (if running), persists current ratings, and returns items
+    /// sorted by Elo. Safe to call at any point — partial rankings are always valid.
+    func finish(context: ModelContext) -> [ReminderItem] {
+        cancelSort()
+        persist(context: context)
+        return items.sorted { $0.eloRating > $1.eloRating }
+    }
+
+    /// Resets all state so the engine can be reused for a new session.
+    func reset() {
+        cancelSort()
+        items = []
+        startItems = []
+        currentPair = nil
+        comparisonCount = 0
+        estimatedRemaining = 0
+        isConverged = false
+        isStarted = false
+        totalComparisons = 0
+        decisionHistory = []
+        canUndo = false
+    }
+
+    // MARK: - Private Helpers
+
+    /// Extracts sort Task creation so both `start()` and `undo()` can launch it.
+    private func launchSort() {
+        isStarted = true
         sortTask = Task { [weak self] in
             guard let self else { return }
             let sorted = await self.mergeSort(self.items)
@@ -72,46 +165,21 @@ final class EloEngine: ObservableObject {
         }
     }
 
-    /// The user picked `winner` as higher priority. Resumes the suspended sort.
-    func choose(winner: ReminderItem) {
-        guard pendingContinuation != nil else { return }
-        pendingContinuation?.resume(returning: winner.id)
-        pendingContinuation = nil
-        comparisonCount += 1
-        estimatedRemaining = max(0, totalComparisons - comparisonCount)
+    /// Applies a standard Elo delta (K=32) to winner and loser in `self.items`.
+    private func applyEloDelta(winnerID: String, loserID: String) {
+        guard let wi = items.firstIndex(where: { $0.id == winnerID }),
+              let li = items.firstIndex(where: { $0.id == loserID }) else { return }
+        let rW = items[wi].eloRating, rL = items[li].eloRating
+        let expected = 1.0 / (1.0 + pow(10.0, (rL - rW) / 400.0))
+        let k = 32.0
+        items[wi].eloRating += k * (1.0 - expected)
+        items[li].eloRating -= k * (1.0 - expected)
     }
 
-    /// The user considers the two items equal. Breaks the tie using the AI-seeded Elo order.
-    func equal() {
-        guard let pair = currentPair else { return }
-        let tiebreaker = pair.0.eloRating >= pair.1.eloRating ? pair.0 : pair.1
-        choose(winner: tiebreaker)
+    /// Canonical order-independent key for a pair — used to match replay history entries.
+    private func pairKey(_ a: ReminderItem, _ b: ReminderItem) -> String {
+        [a.id, b.id].sorted().joined(separator: "|")
     }
-
-    /// Skips without expressing a preference. Behaves like `equal()`.
-    func skip() { equal() }
-
-    /// Cancels the sort (if running), persists current ratings, and returns items
-    /// sorted by Elo. Safe to call at any point — partial rankings are always valid.
-    func finish(context: ModelContext) -> [ReminderItem] {
-        cancelSort()
-        persist(context: context)
-        return items.sorted { $0.eloRating > $1.eloRating }
-    }
-
-    /// Resets all state so the engine can be reused for a new session.
-    func reset() {
-        cancelSort()
-        items = []
-        currentPair = nil
-        comparisonCount = 0
-        estimatedRemaining = 0
-        isConverged = false
-        isStarted = false
-        totalComparisons = 0
-    }
-
-    // MARK: - Cancel Helper
 
     private func cancelSort() {
         sortTask?.cancel()
@@ -155,8 +223,15 @@ final class EloEngine: ObservableObject {
     }
 
     /// Suspends the sort Task and waits for the user to pick a winner via `choose(winner:)`.
+    /// During undo replay, auto-resolves recorded decisions without suspending.
     private func compare(_ a: ReminderItem, _ b: ReminderItem) async -> ReminderItem {
         guard !Task.isCancelled else { return a }
+        let key = pairKey(a, b)
+        // Auto-replay a prior decision (happens when sort restarts after undo).
+        // Does NOT call choose() — avoids double-counting comparisonCount.
+        if let recorded = decisionHistory.first(where: { $0.pairKey == key }) {
+            return recorded.winnerID == a.id ? a : b
+        }
         currentPair = (a, b)
         let winnerID = await withCheckedContinuation { continuation in
             pendingContinuation = continuation
