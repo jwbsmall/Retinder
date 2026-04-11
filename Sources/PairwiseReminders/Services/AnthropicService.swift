@@ -168,6 +168,19 @@ struct AnthropicService {
         return try parseFilterResponse(responseData)
     }
 
+    // MARK: - Connection Test
+
+    /// Sends a minimal request to verify the API key and network reachability.
+    /// Throws `AnthropicError.apiError` on a bad key, or a URLError on network failure.
+    func testConnection() async throws {
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": 1,
+            "messages": [["role": "user", "content": "hi"]]
+        ]
+        _ = try await performRequest(body: body)
+    }
+
     // MARK: - Private Helpers
 
     private func performRequest(body: [String: Any]) async throws -> Data {

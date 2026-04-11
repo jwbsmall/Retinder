@@ -9,8 +9,13 @@ struct SettingsView: View {
     @State private var apiKey: String = ""
     @State private var apiKeyMasked = true
     @State private var apiKeySaved = false
+    @State private var connectionTest: ConnectionTestState = .idle
     @State private var useOnDeviceModel: Bool = FoundationModelService.isAvailable
     @State private var aiPreference: PairwiseSession.AIPreference = .onDeviceFirst
+
+    private enum ConnectionTestState: Equatable {
+        case idle, testing, ok, failed(String)
+    }
 
     var body: some View {
         NavigationStack {
@@ -55,6 +60,17 @@ struct SettingsView: View {
                     .font(.caption)
             }
 
+            // Connection test
+            HStack {
+                Button("Test connection") {
+                    testConnection()
+                }
+                .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty
+                          || connectionTest == .testing)
+                Spacer()
+                connectionTestLabel
+            }
+
             // On-device model toggle
             if FoundationModelService.isAvailable {
                 Toggle("Use on-device model", isOn: $useOnDeviceModel)
@@ -77,6 +93,25 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private var connectionTestLabel: some View {
+        switch connectionTest {
+        case .idle:
+            EmptyView()
+        case .testing:
+            ProgressView().controlSize(.small)
+        case .ok:
+            Label("Connected", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.caption)
+        case .failed(let message):
+            Label(message, systemImage: "xmark.circle.fill")
+                .foregroundStyle(.red)
+                .font(.caption)
+                .lineLimit(2)
+        }
+    }
+
     // MARK: - Persistence
 
     private func loadSettings() {
@@ -84,6 +119,22 @@ struct SettingsView: View {
         aiPreference = session.aiPreference
         useOnDeviceModel = FoundationModelService.isAvailable
             && UserDefaults.standard.bool(forKey: "use_on_device_model")
+    }
+
+    private func testConnection() {
+        let key = apiKey.trimmingCharacters(in: .whitespaces)
+        guard !key.isEmpty else { return }
+        connectionTest = .testing
+        Task {
+            do {
+                try await AnthropicService(apiKey: key).testConnection()
+                connectionTest = .ok
+            } catch AnthropicService.AnthropicError.apiError(let code, let message) {
+                connectionTest = .failed("Error \(code): \(message)")
+            } catch {
+                connectionTest = .failed(error.localizedDescription)
+            }
+        }
     }
 
     private func saveAPIKey() {
