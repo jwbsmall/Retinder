@@ -180,16 +180,18 @@ struct ListDetailView: View {
     }
 
     private func applyWriteBack(_ options: ApplyOptions) {
+        let items = rankedItems.filter {
+            !options.excludedListIDs.contains($0.ekReminder.calendar?.calendarIdentifier ?? "")
+        }
         do {
             if options.applyPriorities {
                 switch options.priorityMode {
-                case .tiered: try remindersManager.applyPriorities(rankedItems)
-                case .topN:   try remindersManager.applyTopNUrgent(rankedItems, count: options.urgentCount)
+                case .tiered: try remindersManager.applyPriorities(items)
+                case .topN:   try remindersManager.applyTopNUrgent(items, count: options.urgentCount)
                 }
             }
             if options.applyDueDates {
-                let date = options.resolvedDueDate
-                try remindersManager.applyDueDates(rankedItems, count: options.dueDateCount, dueDate: date)
+                try remindersManager.applyDueDates(items, count: options.dueDateCount, dueDate: options.resolvedDueDate)
             }
         } catch {
             applyError = error.localizedDescription

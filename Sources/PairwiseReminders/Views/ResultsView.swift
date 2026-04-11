@@ -113,16 +113,19 @@ struct ResultsView: View {
     // MARK: - Apply
 
     private func applyOptions(_ options: ApplyOptions) {
+        let items = session.rankedItems.filter {
+            !options.excludedListIDs.contains($0.ekReminder.calendar?.calendarIdentifier ?? "")
+        }
         do {
             if options.applyPriorities {
                 switch options.priorityMode {
-                case .tiered: try remindersManager.applyPriorities(session.rankedItems)
-                case .topN:   try remindersManager.applyTopNUrgent(session.rankedItems, count: options.urgentCount)
+                case .tiered: try remindersManager.applyPriorities(items)
+                case .topN:   try remindersManager.applyTopNUrgent(items, count: options.urgentCount)
                 }
             }
             if options.applyDueDates {
                 try remindersManager.applyDueDates(
-                    session.rankedItems,
+                    items,
                     count: options.dueDateCount,
                     dueDate: options.resolvedDueDate
                 )
@@ -220,6 +223,9 @@ struct ApplyOptions {
     var dueTarget: DueTarget = .today
     var customDate: Date = .now
 
+    /// Calendar identifiers whose items should be skipped during write-back.
+    var excludedListIDs: Set<String> = []
+
     enum DueTarget { case today, tomorrow, nextWeek, custom }
 
     var resolvedDueDate: Date {
@@ -245,9 +251,53 @@ struct ApplySheet: View {
 
     var itemCount: Int { items.count }
 
+    /// Distinct lists (calendar ID → name + color) present in the ranked items.
+    private var distinctLists: [(id: String, name: String, color: CGColor)] {
+        var seen = Set<String>()
+        return items.compactMap { item -> (String, String, CGColor)? in
+            guard let cal = item.ekReminder.calendar else { return nil }
+            let id = cal.calendarIdentifier
+            guard seen.insert(id).inserted else { return nil }
+            return (id, cal.title, cal.cgColor)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                // List exclusion — only shown when items span more than one list.
+                if distinctLists.count > 1 {
+                    Section {
+                        ForEach(distinctLists, id: \.id) { list in
+                            let excluded = options.excludedListIDs.contains(list.id)
+                            Button {
+                                if excluded {
+                                    options.excludedListIDs.remove(list.id)
+                                } else {
+                                    options.excludedListIDs.insert(list.id)
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Circle()
+                                        .fill(Color(cgColor: list.color))
+                                        .frame(width: 10, height: 10)
+                                    Text(list.name)
+                                        .foregroundStyle(excluded ? .secondary : .primary)
+                                    Spacer()
+                                    Image(systemName: excluded ? "circle" : "checkmark.circle.fill")
+                                        .foregroundStyle(excluded ? Color(.tertiaryLabel) : .blue)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } header: {
+                        Text("Apply to")
+                    } footer: {
+                        let n = distinctLists.count - options.excludedListIDs.count
+                        Text("Write-back will affect \(n) of \(distinctLists.count) list\(distinctLists.count == 1 ? "" : "s"). Excluded lists are ranked but left untouched.")
+                    }
+                }
+
                 Section {
                     Toggle("Set priorities", isOn: $options.applyPriorities)
                     if options.applyPriorities {
@@ -300,7 +350,7 @@ struct ApplySheet: View {
                         Text("Sets the due date on the top \(options.dueDateCount) item\(options.dueDateCount == 1 ? "" : "s"). Does not set a time or notification.")
                     }
                 }
-            }
+            } // end Form
             .navigationTitle("Apply to Reminders")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
