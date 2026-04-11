@@ -1,20 +1,20 @@
 import Foundation
 import SwiftData
 
-/// Elo-based pairwise ranking engine.
+/// Merge-sort-based pairwise ranking engine.
 ///
 /// How it works:
-/// 1. `start(with:)` loads Elo ratings from SwiftData (or defaults to 1000) and
-///    selects the most uncertain pair (closest ratings) to show first.
-/// 2. The UI calls `choose(winner:)`, `equal()`, or `skip()` after the user decides.
-/// 3. Each choice updates both items' Elo ratings and K-factors, then selects the
-///    next most uncertain pair.
-/// 4. The user can call `finish()` at any time — the current ratings are persisted
-///    and the sorted list is returned. Partial ranking is always valid.
-/// 5. `isConverged` becomes true when no pair has a rating gap < 50 (all orderings
-///    are reasonably settled).
+/// 1. `start(with:)` sorts items by AI-seeded Elo rating and begins an async merge sort.
+///    The sort suspends at each comparison, waiting for the user to pick a winner.
+/// 2. The UI calls `choose(winner:)`, `equal()`, or `skip()` to resume the sort.
+/// 3. When the sort finishes, Elo ratings are assigned from the final rank and
+///    `isConverged` becomes true, signalling PairwiseView to transition to results.
+/// 4. "Done for now" calls `finish()` at any time — the sort is cancelled and items
+///    are returned sorted by their current (AI-seeded) Elo ratings.
 ///
-/// All published-property mutations happen on the MainActor for SwiftUI safety.
+/// Guarantees:
+/// - No pair is ever shown twice (each merge step visits a pair exactly once)
+/// - Worst-case comparison count: T(n) = T(⌊n/2⌋) + T(⌈n/2⌉) + (n−1), e.g. 5 for n=4
 @MainActor
 final class EloEngine: ObservableObject {
 
@@ -26,11 +26,10 @@ final class EloEngine: ObservableObject {
     /// How many comparisons have been made this session.
     @Published private(set) var comparisonCount: Int = 0
 
-    /// Estimate of how many more comparisons would meaningfully change the ranking.
-    /// Derived from how many pairs still have close ratings.
+    /// Exact remaining comparisons (worst case). Counts down as decisions are made.
     @Published private(set) var estimatedRemaining: Int = 0
 
-    /// True when all pairs have a rating gap ≥ 50 — further comparisons yield diminishing returns.
+    /// True once the merge sort finishes — triggers session.finish() in PairwiseView.
     @Published private(set) var isConverged: Bool = false
 
     /// True once `start` has been called.
@@ -39,142 +38,139 @@ final class EloEngine: ObservableObject {
     // MARK: - Private State
 
     private var items: [ReminderItem] = []
-    /// Prevents showing the exact same pair twice in a row.
-    private var lastPairKey: String?
+    private var sortTask: Task<Void, Never>?
+    private var pendingContinuation: CheckedContinuation<String, Never>?
+    private var totalComparisons: Int = 0
 
     // MARK: - Public Interface
 
-    /// Initialises the engine with items, loading their Elo ratings from SwiftData.
-    /// Safe to call again after `reset()`.
+    /// Starts the merge sort. Items are pre-ordered by their Elo rating (AI seed order)
+    /// so the sort's first comparisons are the closest calls — the most interesting ones.
     func start(with items: [ReminderItem]) {
         guard !isStarted else { return }
         isStarted = true
         comparisonCount = 0
-        self.items = items
-        updateConvergenceAndAdvance()
+        self.items = items.sorted { $0.eloRating > $1.eloRating }
+        totalComparisons = worstCaseComparisons(self.items.count)
+        estimatedRemaining = totalComparisons
+
+        sortTask = Task { [weak self] in
+            guard let self else { return }
+            let sorted = await self.mergeSort(self.items)
+            guard !Task.isCancelled else { return }
+            // Assign Elo from final rank so sparklines and cross-session history still work.
+            let n = sorted.count
+            for (rank, item) in sorted.enumerated() {
+                if let idx = self.items.firstIndex(where: { $0.id == item.id }) {
+                    self.items[idx].eloRating = 1000.0 + Double(n - 1 - rank) * 20.0
+                    self.items[idx].kFactor = 8.0  // Settled; low K means future sessions move it less.
+                }
+            }
+            self.currentPair = nil
+            self.estimatedRemaining = 0
+            self.isConverged = true
+        }
     }
 
-    /// The user picked `winner` as higher priority. Updates both items' ratings and
-    /// advances to the next comparison.
+    /// The user picked `winner` as higher priority. Resumes the suspended sort.
     func choose(winner: ReminderItem) {
-        guard let pair = currentPair else { return }
-        let loser = winner.id == pair.0.id ? pair.1 : pair.0
-        applyEloUpdate(winner: winner.id, loser: loser.id, outcome: 1.0)
+        guard pendingContinuation != nil else { return }
+        pendingContinuation?.resume(returning: winner.id)
+        pendingContinuation = nil
         comparisonCount += 1
-        updateConvergenceAndAdvance()
+        estimatedRemaining = max(0, totalComparisons - comparisonCount)
     }
 
-    /// The user considers the two items roughly equal. Applies a small symmetric update.
+    /// The user considers the two items equal. Breaks the tie using the AI-seeded Elo order.
     func equal() {
         guard let pair = currentPair else { return }
-        applyEloUpdate(winner: pair.0.id, loser: pair.1.id, outcome: 0.5)
-        // Force a small spread if ratings are still too close — prevents zero-delta re-selection.
-        if let wi = items.firstIndex(where: { $0.id == pair.0.id }),
-           let li = items.firstIndex(where: { $0.id == pair.1.id }),
-           abs(items[wi].eloRating - items[li].eloRating) < 50.0 {
-            items[wi].eloRating += 25.0
-            items[li].eloRating -= 25.0
-        }
-        comparisonCount += 1
-        updateConvergenceAndAdvance()
+        let tiebreaker = pair.0.eloRating >= pair.1.eloRating ? pair.0 : pair.1
+        choose(winner: tiebreaker)
     }
 
-    /// The user skips without expressing a preference. No rating change; moves on.
-    func skip() {
-        guard currentPair != nil else { return }
-        comparisonCount += 1
-        updateConvergenceAndAdvance()
-    }
+    /// Skips without expressing a preference. Behaves like `equal()`.
+    func skip() { equal() }
 
-    /// Persists all current Elo ratings to SwiftData and returns items sorted by
-    /// rating descending (highest priority first). Call when the user taps "Done for now".
+    /// Cancels the sort (if running), persists current ratings, and returns items
+    /// sorted by Elo. Safe to call at any point — partial rankings are always valid.
     func finish(context: ModelContext) -> [ReminderItem] {
+        cancelSort()
         persist(context: context)
         return items.sorted { $0.eloRating > $1.eloRating }
     }
 
-    /// Resets all engine state so it can be reused.
+    /// Resets all state so the engine can be reused for a new session.
     func reset() {
+        cancelSort()
         items = []
         currentPair = nil
         comparisonCount = 0
         estimatedRemaining = 0
         isConverged = false
         isStarted = false
-        lastPairKey = nil
+        totalComparisons = 0
     }
 
-    // MARK: - Elo Maths
+    // MARK: - Cancel Helper
 
-    /// Applies a standard Elo update.
-    /// `outcome` is from the first-listed player's perspective: 1.0 = win, 0.5 = draw.
-    private func applyEloUpdate(winner winnerID: String, loser loserID: String, outcome: Double) {
-        guard
-            let wi = items.firstIndex(where: { $0.id == winnerID }),
-            let li = items.firstIndex(where: { $0.id == loserID })
-        else { return }
-
-        let rA = items[wi].eloRating
-        let rB = items[li].eloRating
-        let expected = 1.0 / (1.0 + pow(10.0, (rB - rA) / 400.0))
-
-        let kA = items[wi].kFactor
-        let kB = items[li].kFactor
-
-        items[wi].eloRating += kA * (outcome - expected)
-        items[li].eloRating -= kB * (outcome - expected)
-
-        // Decay K-factor toward a floor of 8.
-        items[wi].kFactor = max(8.0, kA * 0.95)
-        items[li].kFactor = max(8.0, kB * 0.95)
-    }
-
-    // MARK: - Pair Selection + Convergence (combined to sort once per comparison)
-
-    /// Sorts items once, counts uncertain adjacent pairs, and selects the next pair to show.
-    /// Skips the most-recently-shown pair if any other uncertain pair exists — prevents
-    /// the same two items appearing back-to-back when their gap is still the smallest.
-    private func updateConvergenceAndAdvance() {
+    private func cancelSort() {
+        sortTask?.cancel()
+        sortTask = nil
+        // Resume any suspended continuation so the Task can exit cleanly.
+        if let pair = currentPair {
+            let tiebreaker = pair.0.eloRating >= pair.1.eloRating ? pair.0 : pair.1
+            pendingContinuation?.resume(returning: tiebreaker.id)
+        } else {
+            pendingContinuation?.resume(returning: "")
+        }
+        pendingContinuation = nil
         currentPair = nil
-        guard items.count >= 2 else { isConverged = true; return }
+    }
 
-        let sorted = items.sorted { $0.eloRating > $1.eloRating }
+    // MARK: - Merge Sort
 
-        var uncertainCount = 0
-        var bestGap = Double.infinity
-        var bestPair: (ReminderItem, ReminderItem)?
-        var fallbackGap = Double.infinity
-        var fallbackPair: (ReminderItem, ReminderItem)?
+    private func mergeSort(_ arr: [ReminderItem]) async -> [ReminderItem] {
+        guard !Task.isCancelled, arr.count > 1 else { return arr }
+        let mid = arr.count / 2
+        let left  = await mergeSort(Array(arr[..<mid]))
+        let right = await mergeSort(Array(arr[mid...]))
+        return await merge(left, right)
+    }
 
-        for i in 0..<(sorted.count - 1) {
-            let gap = sorted[i].eloRating - sorted[i + 1].eloRating
-            guard gap < 50.0 else { continue }
-            uncertainCount += 1
-            let key = pairKey(sorted[i], sorted[i + 1])
-            if gap < bestGap {
-                // Prefer a pair we haven't just shown.
-                if key != lastPairKey {
-                    bestGap = gap
-                    bestPair = (sorted[i], sorted[i + 1])
-                } else if gap < fallbackGap {
-                    fallbackGap = gap
-                    fallbackPair = (sorted[i], sorted[i + 1])
-                }
+    private func merge(_ left: [ReminderItem], _ right: [ReminderItem]) async -> [ReminderItem] {
+        var result: [ReminderItem] = []
+        var li = 0, ri = 0
+        while li < left.count && ri < right.count {
+            guard !Task.isCancelled else { break }
+            let winner = await compare(left[li], right[ri])
+            if winner.id == left[li].id {
+                result.append(left[li]); li += 1
+            } else {
+                result.append(right[ri]); ri += 1
             }
         }
-
-        estimatedRemaining = uncertainCount
-
-        if let pair = bestPair ?? fallbackPair {
-            lastPairKey = pairKey(pair.0, pair.1)
-            currentPair = pair
-        } else {
-            isConverged = true
-        }
+        result += Array(left[li...])
+        result += Array(right[ri...])
+        return result
     }
 
-    private func pairKey(_ a: ReminderItem, _ b: ReminderItem) -> String {
-        a.id < b.id ? "\(a.id)|\(b.id)" : "\(b.id)|\(a.id)"
+    /// Suspends the sort Task and waits for the user to pick a winner via `choose(winner:)`.
+    private func compare(_ a: ReminderItem, _ b: ReminderItem) async -> ReminderItem {
+        guard !Task.isCancelled else { return a }
+        currentPair = (a, b)
+        let winnerID = await withCheckedContinuation { continuation in
+            pendingContinuation = continuation
+        }
+        return winnerID == a.id ? a : b
+    }
+
+    // MARK: - Comparison Count
+
+    /// Worst-case merge-step count: T(1) = 0, T(n) = T(⌊n/2⌋) + T(⌈n/2⌉) + (n − 1).
+    private func worstCaseComparisons(_ n: Int) -> Int {
+        guard n > 1 else { return 0 }
+        let mid = n / 2
+        return (n - 1) + worstCaseComparisons(mid) + worstCaseComparisons(n - mid)
     }
 
     // MARK: - Persistence
@@ -193,8 +189,6 @@ final class EloEngine: ObservableObject {
                 record.comparisonCount += 1
                 record.lastComparedAt = now
             }
-            // New records are inserted by RemindersManager.syncWithEventKit —
-            // we only update here, not insert.
         }
         try? context.save()
     }
