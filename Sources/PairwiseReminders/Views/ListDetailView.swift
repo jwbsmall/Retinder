@@ -67,9 +67,11 @@ struct ListDetailView: View {
     private var itemList: some View {
         List {
             if !rankedItems.isEmpty {
+                let eloMin = rankedItems.last?.eloRating ?? 1000
+                let eloMax = rankedItems.first?.eloRating ?? 1000
                 Section("Ranked — \(rankedItems.count)") {
                     ForEach(Array(rankedItems.enumerated()), id: \.element.id) { index, item in
-                        RankedRowView(item: item, rank: index + 1, total: rankedItems.count)
+                        RankedRowView(item: item, rank: index + 1, eloMin: eloMin, eloMax: eloMax)
                             .swipeActions(edge: .leading) {
                                 Button {
                                     complete(item)
@@ -246,10 +248,19 @@ struct ListDetailView: View {
 private struct RankedRowView: View {
     let item: ReminderItem
     let rank: Int
-    let total: Int
+    let eloMin: Double
+    let eloMax: Double
 
-    private var priorityLabel: String { item.priorityLabel(totalCount: total) }
-    private var priorityColor: Color  { mapColor(item.priorityColor(totalCount: total)) }
+    private var eloStrength: Double {
+        guard eloMax > eloMin else { return 0 }
+        return max(0, min(1, (item.eloRating - eloMin) / (eloMax - eloMin)))
+    }
+
+    private var barTint: Color {
+        if eloStrength > 0.66 { return .blue }
+        if eloStrength > 0.33 { return .indigo }
+        return Color(.systemGray3)
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -262,33 +273,27 @@ private struct RankedRowView: View {
                     .foregroundStyle(.white)
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(item.title)
                     .font(.body)
                     .lineLimit(2)
 
                 HStack(spacing: 6) {
+                    if let due = item.dueDate {
+                        Label(due.formatted(.dateTime.day().month()), systemImage: "calendar")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("·").foregroundStyle(.tertiary).font(.caption)
+                    }
                     Text(item.listName)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if let due = item.dueDate {
-                        Text("·").foregroundStyle(.tertiary).font(.caption)
-                        Text(due.formatted(.dateTime.day().month()))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
+
+                ProgressView(value: eloStrength)
+                    .tint(barTint)
+                    .frame(height: 3)
             }
-
-            Spacer()
-
-            Text(priorityLabel)
-                .font(.caption.bold())
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(priorityColor.opacity(0.15))
-                .foregroundStyle(priorityColor)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
         }
         .padding(.vertical, 3)
     }
@@ -299,15 +304,6 @@ private struct RankedRowView: View {
         case 2: return .indigo
         case 3: return .purple
         default: return Color(.systemGray3)
-        }
-    }
-
-    private func mapColor(_ c: ReminderItem.PriorityColor) -> Color {
-        switch c {
-        case .high:   return .red
-        case .medium: return .orange
-        case .low:    return .yellow
-        case .none:   return Color(.secondaryLabel)
         }
     }
 }
