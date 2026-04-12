@@ -112,11 +112,9 @@ struct ResultsView: View {
                 Label("Apply to Reminders…", systemImage: "square.and.arrow.down")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .padding(.horizontal)
 
             Button("Done") {

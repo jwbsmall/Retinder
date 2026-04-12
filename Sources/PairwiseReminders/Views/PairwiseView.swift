@@ -65,9 +65,7 @@ struct PairwiseView: View {
                 Button("Done for now") {
                     session.finish(eloEngine: engine, context: modelContext)
                 }
-                .font(.subheadline)
                 .buttonStyle(.bordered)
-                .controlSize(.small)
                 .tint(.secondary)
 
                 Spacer()
@@ -169,83 +167,59 @@ struct PairwiseView: View {
                 .padding(.horizontal)
                 .simultaneousGesture(LongPressGesture().onEnded { _ in editingItem = bottomItem })
 
+            // Swipe affordance hint — static cue that the card is swipeable
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.left")
+                Text("Swipe to choose")
+                Image(systemName: "arrow.right")
+            }
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .padding(.top, 8)
+
             // Explicit choice buttons — clear affordance, swipe still works as a shortcut
             HStack(spacing: 10) {
                 Button {
                     engine.choose(winner: topItem)
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.up")
-                            .font(.subheadline.bold())
-                        Text("Top one")
-                            .font(.subheadline.weight(.medium))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
-                    .background(Color(.secondarySystemBackground))
-                    .foregroundStyle(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 13))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 13)
-                            .strokeBorder(Color(.separator), lineWidth: 0.5)
-                    )
+                    Label("Top one", systemImage: "arrow.up")
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
+                .controlSize(.large)
 
                 Button {
                     engine.choose(winner: bottomItem)
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.down")
-                            .font(.subheadline.bold())
-                        Text("This one")
-                            .font(.subheadline.weight(.medium))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
-                    .background(Color.blue)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 13))
+                    Label("This one", systemImage: "arrow.down")
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
             .padding(.horizontal)
-            .padding(.top, 12)
+            .padding(.top, 4)
 
-            // Secondary actions — equal-width bordered buttons
+            // Secondary actions
             HStack(spacing: 10) {
                 Button { engine.equal() } label: {
                     Text("About equal")
-                        .font(.subheadline)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(Color(.secondarySystemBackground))
-                        .foregroundStyle(.secondary)
-                        .clipShape(RoundedRectangle(cornerRadius: 13))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 13)
-                                .strokeBorder(Color(.separator), lineWidth: 0.5)
-                        )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(.secondary)
 
                 Button { engine.skip() } label: {
                     Text("Skip")
-                        .font(.subheadline)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(Color(.secondarySystemBackground))
-                        .foregroundStyle(.secondary)
-                        .clipShape(RoundedRectangle(cornerRadius: 13))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 13)
-                                .strokeBorder(Color(.separator), lineWidth: 0.5)
-                        )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(.secondary)
             }
             .padding(.horizontal)
-            .padding(.top, 10)
+            .padding(.top, 8)
 
             Spacer(minLength: 20)
         }
@@ -314,7 +288,7 @@ struct PairwiseView: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
-                Image(systemName: "cursorarrow.click")
+                Image(systemName: "hand.tap")
                     .font(.subheadline)
                     .foregroundStyle(.blue.opacity(0.6))
                 Text("Tap to pick")

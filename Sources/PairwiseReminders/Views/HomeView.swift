@@ -384,11 +384,10 @@ struct HomeView: View {
                 Text(prioritiseLabel)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(selectedListIDs.isEmpty ? Color(.systemGray4) : Color.blue)
-                    .foregroundStyle(selectedListIDs.isEmpty ? Color.secondary : .white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(selectedListIDs.isEmpty ? Color(.systemGray4) : .blue)
             .padding(.horizontal)
             .padding(.vertical, 12)
         }
