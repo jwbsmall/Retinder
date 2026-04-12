@@ -441,9 +441,7 @@ struct HomeView: View {
                     .foregroundStyle(hasSelection ? .white : Color.secondary)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(selectedListIDs.isEmpty ? Color(.systemGray4) : .blue)
+            .buttonStyle(.plain)
             .padding(.horizontal)
             .padding(.vertical, 12)
         }
@@ -710,17 +708,15 @@ private struct CollapsedListHeader: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(Color(cgColor: calendar.cgColor))
-                        .frame(width: 10, height: 10)
-                    Text(calendar.title)
-                        .font(.body.bold())
-                        .foregroundStyle(.primary)
-                }
-                eloSparkline
-            }
+            Circle()
+                .fill(Color(cgColor: calendar.cgColor))
+                .frame(width: 10, height: 10)
+            Text(calendar.title)
+                .font(.body.bold())
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+            eloSparkline
+                .fixedSize(horizontal: true, vertical: false)
 
             Spacer()
 

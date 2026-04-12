@@ -55,6 +55,23 @@ struct PairwiseView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    if engine.canUndo {
+                        Button("Undo", systemImage: "arrow.uturn.backward") {
+                            engine.undo()
+                        }
+                    }
+                    Button("Done for now", systemImage: "xmark") {
+                        session.finish(eloEngine: engine, context: modelContext)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
     }
 
     // MARK: - Header
@@ -62,37 +79,22 @@ struct PairwiseView: View {
     private var headerBar: some View {
         VStack(spacing: 10) {
             HStack {
-                Button("Done for now") {
-                    session.finish(eloEngine: engine, context: modelContext)
-                }
-                .buttonStyle(.bordered)
-                .tint(.secondary)
-
                 Spacer()
-
                 Text(session.rankingMode.comparisonQuestion)
                     .font(.headline)
-
                 Spacer()
-
-                HStack(spacing: 12) {
-                    if engine.canUndo {
-                        Button { engine.undo() } label: {
-                            Image(systemName: "arrow.uturn.backward")
-                        }
-                        .foregroundStyle(.secondary)
+            }
+            .overlay(alignment: .trailing) {
+                Group {
+                    if engine.estimatedRemaining > 0 {
+                        Text("\(engine.estimatedRemaining) left")
+                    } else {
+                        Text("Almost done")
                     }
-                    Group {
-                        if engine.estimatedRemaining > 0 {
-                            Text("\(engine.estimatedRemaining) left")
-                        } else {
-                            Text("Almost done")
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
             }
             .padding(.horizontal)
             .padding(.top)
@@ -167,59 +169,14 @@ struct PairwiseView: View {
                 .padding(.horizontal)
                 .simultaneousGesture(LongPressGesture().onEnded { _ in editingItem = bottomItem })
 
-            // Swipe affordance hint — static cue that the card is swipeable
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.left")
-                Text("Swipe to choose")
-                Image(systemName: "arrow.right")
+            // Secondary action
+            Button { engine.equal() } label: {
+                Text("About equal")
             }
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-            .padding(.top, 8)
-
-            // Explicit choice buttons — clear affordance, swipe still works as a shortcut
-            HStack(spacing: 10) {
-                Button {
-                    engine.choose(winner: topItem)
-                } label: {
-                    Label("Top one", systemImage: "arrow.up")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-
-                Button {
-                    engine.choose(winner: bottomItem)
-                } label: {
-                    Label("This one", systemImage: "arrow.down")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-            }
-            .padding(.horizontal)
-            .padding(.top, 4)
-
-            // Secondary actions
-            HStack(spacing: 10) {
-                Button { engine.equal() } label: {
-                    Text("About equal")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .tint(.secondary)
-
-                Button { engine.skip() } label: {
-                    Text("Skip")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .tint(.secondary)
-            }
-            .padding(.horizontal)
-            .padding(.top, 8)
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .tint(.secondary)
+            .padding(.top, 12)
 
             Spacer(minLength: 20)
         }
@@ -232,6 +189,7 @@ struct PairwiseView: View {
 
         return CardBody(item: item)
             .overlay(swipeOverlay(normalized: normalized))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.blue.opacity(0.3), lineWidth: 2))
             .rotationEffect(.degrees(Double(normalized) * 6))
             .offset(x: dragOffset.width * 0.5)
             .gesture(
@@ -287,14 +245,6 @@ struct PairwiseView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: 3) {
-                Image(systemName: "hand.tap")
-                    .font(.subheadline)
-                    .foregroundStyle(.blue.opacity(0.6))
-                Text("Tap to pick")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
         }
         .padding(14)
         .background(
@@ -302,7 +252,7 @@ struct PairwiseView: View {
                 .fill(Color(.secondarySystemBackground))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.blue.opacity(0.18), lineWidth: 1)
+                        .stroke(Color(.separator).opacity(0.3), lineWidth: 1)
                 )
         )
     }
