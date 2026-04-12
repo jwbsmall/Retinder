@@ -441,6 +441,9 @@ struct HomeView: View {
                     .foregroundStyle(hasSelection ? .white : Color.secondary)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(selectedListIDs.isEmpty ? Color(.systemGray4) : .blue)
             .padding(.horizontal)
             .padding(.vertical, 12)
         }

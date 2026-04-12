@@ -112,11 +112,9 @@ struct ResultsView: View {
                 Label("Apply to Reminders…", systemImage: "square.and.arrow.down")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .padding(.horizontal)
 
             Button("Done") {
@@ -374,8 +372,8 @@ struct ApplySheet: View {
             Toggle("Set priorities", isOn: $options.applyPriorities)
             if options.applyPriorities {
                 Picker("Mode", selection: $options.priorityMode) {
-                    Text("Distribute").tag(ApplyOptions.PriorityMode.tiered)
-                    Text("Top N only").tag(ApplyOptions.PriorityMode.topN)
+                    Text("Tiered").tag(ApplyOptions.PriorityMode.tiered)
+                    Text("Top N").tag(ApplyOptions.PriorityMode.topN)
                 }
                 .pickerStyle(.segmented)
                 if options.priorityMode == .topN {
