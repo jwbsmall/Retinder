@@ -22,6 +22,7 @@ struct HomeView: View {
 
     @State private var expandedListIDs: Set<String> = []
     @State private var selectedListIDs: Set<String> = []
+    @State private var isSelecting: Bool = false
     @State private var itemsByList: [String: [ReminderItem]] = [:]
     @State private var loadingListIDs: Set<String> = []
 
@@ -49,25 +50,42 @@ struct HomeView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(allExpanded ? "Collapse All" : "Expand All") {
-                        if allExpanded {
-                            expandedListIDs = []
-                        } else {
-                            let ids = Set(remindersManager.lists.map(\.calendarIdentifier))
-                            expandedListIDs = ids
-                            ids.forEach { loadItemsIfNeeded(for: $0) }
+                    if isSelecting {
+                        Button("Cancel") {
+                            isSelecting = false
+                            selectedListIDs = []
                         }
+                        .font(.subheadline)
+                    } else {
+                        Button(allExpanded ? "Collapse All" : "Expand All") {
+                            if allExpanded {
+                                expandedListIDs = []
+                            } else {
+                                let ids = Set(remindersManager.lists.map(\.calendarIdentifier))
+                                expandedListIDs = ids
+                                ids.forEach { loadItemsIfNeeded(for: $0) }
+                            }
+                        }
+                        .font(.subheadline)
                     }
-                    .font(.subheadline)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack(spacing: 16) {
-                        Button { showHistory = true } label: {
-                            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                        if isSelecting {
+                            EmptyView()
+                        } else {
+                            Button { showHistory = true } label: {
+                                Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                            }
+                            Button { showSettings = true } label: {
+                                Image(systemName: "gear")
+                            }
                         }
-                        Button { showSettings = true } label: {
-                            Image(systemName: "gear")
+                        Button(isSelecting ? "Done" : "Select") {
+                            isSelecting.toggle()
+                            if !isSelecting { selectedListIDs = [] }
                         }
+                        .font(.subheadline.weight(isSelecting ? .semibold : .regular))
                     }
                 }
             }
@@ -84,6 +102,7 @@ struct HomeView: View {
                 PrioritiseOptionsSheet(listIDs: selectedListIDs) {
                     showPrioritiseOptions = false
                     showPrioritise = true
+                    isSelecting = false
                     Task {
                         await session.start(
                             listIDs: selectedListIDs,
@@ -131,6 +150,7 @@ struct HomeView: View {
                         calendar: calendar,
                         records: listRecords,
                         isSelected: selectedListIDs.contains(id),
+                        isSelecting: isSelecting,
                         onToggleSelect: { toggleSelect(id) }
                     )
                 }
@@ -182,7 +202,12 @@ struct HomeView: View {
     private var prioritiseButton: some View {
         VStack(spacing: 0) {
             Button {
-                showPrioritiseOptions = true
+                if selectedListIDs.isEmpty {
+                    // Shortcut: tapping the button starts selection mode
+                    isSelecting = true
+                } else {
+                    showPrioritiseOptions = true
+                }
             } label: {
                 Text(prioritiseLabel)
                     .font(.headline)
@@ -194,13 +219,12 @@ struct HomeView: View {
             }
             .padding(.horizontal)
             .padding(.vertical, 12)
-            .disabled(selectedListIDs.isEmpty)
         }
         .background(.regularMaterial)
     }
 
     private var prioritiseLabel: String {
-        if selectedListIDs.isEmpty { return "Select lists to prioritise" }
+        if selectedListIDs.isEmpty { return "Select Lists to Prioritise" }
         let n = selectedListIDs.count
         return "Prioritise \(n == 1 ? "1 List" : "\(n) Lists")"
     }
@@ -382,6 +406,7 @@ private struct CollapsedListHeader: View {
     let calendar: EKCalendar
     let records: [RankedItemRecord]
     let isSelected: Bool
+    let isSelecting: Bool
     let onToggleSelect: () -> Void
 
     private var rankedRecords: [RankedItemRecord] {
@@ -404,12 +429,15 @@ private struct CollapsedListHeader: View {
 
             Spacer()
 
-            // Selection toggle — high priority gesture prevents DisclosureGroup from intercepting
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isSelected ? .blue : Color(.tertiaryLabel))
-                .font(.title3)
-                .animation(.spring(response: 0.25), value: isSelected)
-                .highPriorityGesture(TapGesture().onEnded { onToggleSelect() })
+            // Selection circle — only visible in selection mode (cleaner idle state)
+            if isSelecting {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? .blue : Color(.tertiaryLabel))
+                    .font(.title3)
+                    .animation(.spring(response: 0.25), value: isSelected)
+                    .highPriorityGesture(TapGesture().onEnded { onToggleSelect() })
+                    .transition(.scale.combined(with: .opacity))
+            }
         }
         .padding(.vertical, 4)
     }
