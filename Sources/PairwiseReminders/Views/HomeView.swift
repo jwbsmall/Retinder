@@ -18,6 +18,7 @@ struct HomeView: View {
     @State private var showPrioritise = false
     @State private var showSettings = false
     @State private var showPrioritiseOptions = false
+    @State private var showHistory = false
 
     @State private var expandedListIDs: Set<String> = []
     @State private var selectedListIDs: Set<String> = []
@@ -60,8 +61,13 @@ struct HomeView: View {
                     .font(.subheadline)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showSettings = true } label: {
-                        Image(systemName: "gear")
+                    HStack(spacing: 16) {
+                        Button { showHistory = true } label: {
+                            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                        }
+                        Button { showSettings = true } label: {
+                            Image(systemName: "gear")
+                        }
                     }
                 }
             }
@@ -70,6 +76,9 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
+            }
+            .sheet(isPresented: $showHistory) {
+                HistoryView()
             }
             .sheet(isPresented: $showPrioritiseOptions) {
                 PrioritiseOptionsSheet(listIDs: selectedListIDs) {
@@ -145,25 +154,24 @@ struct HomeView: View {
             let ranked = items.filter { $0.comparisonCount > 0 }
                               .sorted { $0.eloRating > $1.eloRating }
             let unranked = items.filter { $0.comparisonCount == 0 }
-            let total = ranked.count
+            let eloMin = ranked.last?.eloRating ?? 1000
+            let eloMax = ranked.first?.eloRating ?? 1000
 
-            if ranked.isEmpty && unranked.isEmpty {
+            if items.isEmpty {
                 Text("No incomplete reminders")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(Array(ranked.enumerated()), id: \.element.id) { index, item in
-                    ExpandedItemRow(item: item, rank: index + 1, total: total)
+                    ExpandedItemRow(item: item, rank: index + 1, eloMin: eloMin, eloMax: eloMax)
                         .contentShape(Rectangle())
                         .onTapGesture { selectedList = calendar }
                 }
-                if !unranked.isEmpty {
-                    Text("\(unranked.count) unranked item\(unranked.count == 1 ? "" : "s")")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .listRowBackground(Color.clear)
+                ForEach(unranked, id: \.id) { item in
+                    ExpandedItemRow(item: item, rank: nil, eloMin: eloMin, eloMax: eloMax)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedList = calendar }
                 }
             }
         }
@@ -379,13 +387,10 @@ private struct CollapsedListHeader: View {
     private var rankedRecords: [RankedItemRecord] {
         records.filter { $0.comparisonCount > 0 }.sorted { $0.eloRating > $1.eloRating }
     }
-    private var rankedCount: Int { rankedRecords.count }
-    private var unrankedCount: Int { records.filter { $0.comparisonCount == 0 }.count }
 
     var body: some View {
         HStack(spacing: 10) {
-            // List colour + name
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Circle()
                         .fill(Color(cgColor: calendar.cgColor))
@@ -394,29 +399,7 @@ private struct CollapsedListHeader: View {
                         .font(.body.bold())
                         .foregroundStyle(.primary)
                 }
-
-                if rankedCount > 0 {
-                    HStack(spacing: 8) {
-                        Text("\(rankedCount) ranked")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        if unrankedCount > 0 {
-                            Text("· \(unrankedCount) unranked")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    eloSparkline
-                    tierSummary
-                } else if unrankedCount > 0 {
-                    Text("\(unrankedCount) item\(unrankedCount == 1 ? "" : "s") · not yet ranked")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("No incomplete reminders")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
+                eloSparkline
             }
 
             Spacer()
@@ -449,93 +432,65 @@ private struct CollapsedListHeader: View {
             .frame(height: 16, alignment: .bottom)
         }
     }
-
-    @ViewBuilder
-    private var tierSummary: some View {
-        let n = rankedCount
-        if n > 0 {
-            let q = max(n / 4, 1)
-            let h = q, m = q, l = q
-            let none = n - h - m - l
-            HStack(spacing: 10) {
-                tierBadge("H", count: h, color: .red)
-                tierBadge("M", count: m, color: .orange)
-                tierBadge("L", count: l, color: .yellow)
-                if none > 0 {
-                    tierBadge("–", count: none, color: Color(.secondaryLabel))
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func tierBadge(_ label: String, count: Int, color: Color) -> some View {
-        HStack(spacing: 2) {
-            Text(label)
-                .font(.caption2.bold())
-                .foregroundStyle(color)
-            Text("\(count)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-    }
 }
 
 // MARK: - Expanded Item Row
 
 private struct ExpandedItemRow: View {
     let item: ReminderItem
-    let rank: Int
-    let total: Int
+    /// 1-based rank for items that have been compared; nil for unranked items.
+    let rank: Int?
+    let eloMin: Double
+    let eloMax: Double
 
-    private var priorityLabel: String {
-        let q = max(total / 4, 1)
-        let r = rank - 1  // 0-based
-        if r < q         { return "High" }
-        if r < q * 2     { return "Medium" }
-        if r < q * 3     { return "Low" }
-        return "None"
+    private var eloStrength: Double {
+        guard rank != nil, eloMax > eloMin else { return 0 }
+        return max(0, min(1, (item.eloRating - eloMin) / (eloMax - eloMin)))
     }
 
-    private var priorityColor: Color {
-        let q = max(total / 4, 1)
-        let r = rank - 1
-        if r < q         { return .red }
-        if r < q * 2     { return .orange }
-        if r < q * 3     { return .yellow }
-        return Color(.secondaryLabel)
+    private var barTint: Color {
+        if eloStrength > 0.66 { return .blue }
+        if eloStrength > 0.33 { return .indigo }
+        return Color(.systemGray3)
     }
 
     var body: some View {
         HStack(spacing: 10) {
-            ZStack {
+            // Rank badge for compared items; plain circle for unranked (matches Reminders.app)
+            if let r = rank {
+                ZStack {
+                    Circle()
+                        .fill(badgeColor(r))
+                        .frame(width: 28, height: 28)
+                    Text("\(r)")
+                        .font(.system(.caption, design: .rounded).bold())
+                        .foregroundStyle(.white)
+                }
+            } else {
                 Circle()
-                    .fill(badgeColor)
-                    .frame(width: 28, height: 28)
-                Text("\(rank)")
-                    .font(.system(.caption, design: .rounded).bold())
-                    .foregroundStyle(.white)
+                    .strokeBorder(Color(.tertiaryLabel), lineWidth: 1.5)
+                    .frame(width: 26, height: 26)
             }
 
-            Text(item.title)
-                .font(.subheadline)
-                .lineLimit(1)
-                .foregroundStyle(.primary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title)
+                    .font(.subheadline)
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
 
-            Spacer()
-
-            Text(priorityLabel)
-                .font(.caption2.bold())
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(priorityColor.opacity(0.15))
-                .foregroundStyle(priorityColor)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                // Continuous Elo strength bar — only for ranked items
+                if rank != nil {
+                    ProgressView(value: eloStrength)
+                        .tint(barTint)
+                        .frame(height: 3)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 2)
     }
 
-    private var badgeColor: Color {
+    private func badgeColor(_ rank: Int) -> Color {
         switch rank {
         case 1: return .blue
         case 2: return .indigo
