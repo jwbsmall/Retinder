@@ -17,14 +17,14 @@ struct FoundationModelService {
     // MARK: - Seeding
 
     /// Ranks items using the on-device language model and returns confidence-weighted results.
-    /// Throws if no capable model is available or if the model fails to produce parseable output.
-    func seedRanking(_ summaries: [AnthropicService.ReminderSummary]) async throws -> [AnthropicService.SeededRank] {
+    /// Throws if no capable model is available, times out, or the model fails to produce parseable output.
+    func seedRanking(_ summaries: [AnthropicService.ReminderSummary], criteria: String? = nil) async throws -> [AnthropicService.SeededRank] {
         guard !summaries.isEmpty else { return [] }
         guard FoundationModelService.isAvailable else {
             throw FoundationModelError.modelUnavailable
         }
 
-        let session = LanguageModelSession()
+        let modelSession = LanguageModelSession()
 
         let numberedList = summaries.enumerated().map { i, s in
             var line = "\(i + 1). [ID: \(s.id)] \(s.title)"
@@ -33,8 +33,12 @@ struct FoundationModelService {
             return line
         }.joined(separator: "\n")
 
+        let criteriaClause = criteria.map { c in
+            " When ranking, specifically prioritise: \(c)."
+        } ?? ""
+
         let prompt = """
-        You are a productivity assistant. Rank these tasks from most to least important. \
+        You are a productivity assistant. Rank these tasks from most to least important.\(criteriaClause) \
         For each, provide a confidence score 0-100 (100 = certain of position, 0 = could go anywhere). \
         Return ALL items. Respond ONLY with a JSON array, no other text:
         [{"id":"<id>","rank":<1-based>,"confidence":<0-100>}, ...]
@@ -43,8 +47,20 @@ struct FoundationModelService {
         \(numberedList)
         """
 
-        let response = try await session.respond(to: prompt)
-        return try parseResponse(response.content, summaries: summaries)
+        // Race the model response against a 10-second timeout to avoid hanging the seeding phase.
+        return try await withThrowingTaskGroup(of: [AnthropicService.SeededRank].self) { group in
+            group.addTask {
+                let response = try await modelSession.respond(to: prompt)
+                return try self.parseResponse(response.content, summaries: summaries)
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(10))
+                throw FoundationModelError.timeout
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
     }
 
     // MARK: - Parsing
@@ -88,12 +104,15 @@ struct FoundationModelService {
 
     enum FoundationModelError: LocalizedError {
         case modelUnavailable
+        case timeout
         case parseError(String)
 
         var errorDescription: String? {
             switch self {
             case .modelUnavailable:
                 return "On-device AI model is not available on this device."
+            case .timeout:
+                return "On-device model timed out."
             case .parseError(let msg):
                 return "Failed to parse on-device model response: \(msg)"
             }

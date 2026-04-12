@@ -499,16 +499,35 @@ private struct PrioritiseOptionsSheet: View {
 
     @State private var rankingMode: PairwiseSession.RankingMode
     @State private var useAI: Bool
+    @State private var criteria: String
+    @State private var topNEnabled: Bool
+    @State private var topN: Int
+
+    private static let topNOptions = [5, 10, 15, 20, 30]
 
     init(listIDs: Set<String>, onStart: @escaping () -> Void) {
         self.listIDs = listIDs
         self.onStart = onStart
+        let defaults = UserDefaults.standard
         _rankingMode = State(initialValue:
-            PairwiseSession.RankingMode(rawValue: UserDefaults.standard.string(forKey: "ranking_mode") ?? "") ?? .overall
+            PairwiseSession.RankingMode(rawValue: defaults.string(forKey: "ranking_mode") ?? "") ?? .overall
         )
         _useAI = State(initialValue:
-            (UserDefaults.standard.string(forKey: "ai_preference") ?? "") != PairwiseSession.AIPreference.none.rawValue
+            (defaults.string(forKey: "ai_preference") ?? "") != PairwiseSession.AIPreference.none.rawValue
         )
+        _criteria = State(initialValue: defaults.string(forKey: "ai_criteria") ?? "")
+        let savedN = defaults.integer(forKey: "ai_top_n")
+        _topNEnabled = State(initialValue: savedN > 0)
+        _topN = State(initialValue: savedN > 0 ? savedN : 10)
+    }
+
+    private var aiAvailabilityNote: String {
+        let hasKey = (KeychainService.load() ?? "").isEmpty == false
+        let hasOnDevice = FoundationModelService.isAvailable
+        if hasOnDevice && hasKey { return "On-device AI + Anthropic API available." }
+        if hasOnDevice { return "On-device AI available." }
+        if hasKey { return "Anthropic API available." }
+        return "No AI backend configured. Add an API key in Settings."
     }
 
     var body: some View {
@@ -530,13 +549,42 @@ private struct PrioritiseOptionsSheet: View {
 
                 Section {
                     Toggle("Use AI to pre-rank items", isOn: $useAI)
+                    if useAI {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Prioritise criteria")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            TextField("e.g. work tasks, deadlines this week", text: $criteria)
+                                .textFieldStyle(.plain)
+                        }
+                        .padding(.vertical, 2)
+
+                        Toggle("Limit to top N items", isOn: $topNEnabled)
+                        if topNEnabled {
+                            Picker("Items to compare", selection: $topN) {
+                                ForEach(Self.topNOptions, id: \.self) { n in
+                                    Text("\(n) items").tag(n)
+                                }
+                            }
+                        }
+                    }
                 } header: {
                     Text("AI seeding")
                 } footer: {
-                    Text(useAI
-                        ? "AI will estimate an initial ranking before you start comparing pairs."
-                        : "Items start with equal ratings. No AI is used.")
-                    .foregroundStyle(.secondary)
+                    if useAI {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(aiAvailabilityNote)
+                            if topNEnabled {
+                                Text("AI will rank all items but only the top \(topN) will be compared.")
+                            } else {
+                                Text("AI will estimate an initial ranking before you start comparing pairs.")
+                            }
+                        }
+                        .foregroundStyle(.secondary)
+                    } else {
+                        Text("Items start with equal ratings. No AI is used.")
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section {
@@ -565,11 +613,11 @@ private struct PrioritiseOptionsSheet: View {
 
     private func applyAndStart() {
         session.rankingMode = rankingMode
+        session.aiCriteria = criteria
+        session.aiTopN = (useAI && topNEnabled) ? topN : nil
         if useAI {
-            // Prefer on-device if available, else API, using existing preference as a hint.
-            if session.aiPreference == .none {
-                session.aiPreference = FoundationModelService.isAvailable ? .onDeviceFirst : .apiFirst
-            }
+            // Always recompute — pick the best available backend.
+            session.aiPreference = FoundationModelService.isAvailable ? .onDeviceFirst : .apiFirst
         } else {
             session.aiPreference = .none
         }

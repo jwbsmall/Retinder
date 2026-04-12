@@ -47,14 +47,17 @@ struct AnthropicService {
     ///
     /// The caller maps rank → Elo via: `1000 + (totalCount - rank) * 20`
     /// and sets kFactor via: `32 * (1 - confidence / 100)` (low confidence → high K).
-    func seedRanking(_ summaries: [ReminderSummary]) async throws -> [SeededRank] {
+    func seedRanking(_ summaries: [ReminderSummary], criteria: String? = nil) async throws -> [SeededRank] {
         guard !summaries.isEmpty else { return [] }
 
+        let criteriaClause = criteria.map { c in
+            " When ranking, specifically prioritise: \(c)."
+        } ?? ""
         let systemPrompt = """
         You are a productivity assistant. Given a list of tasks/reminders, rank them from most \
-        to least important, considering urgency, impact, and time-sensitivity. For each item, \
-        provide a confidence score 0–100 reflecting how certain you are of its position \
-        (100 = definitely right, 0 = could plausibly go anywhere in the list). \
+        to least important, considering urgency, impact, and time-sensitivity.\(criteriaClause) \
+        For each item, provide a confidence score 0–100 reflecting how certain you are of its \
+        position (100 = definitely right, 0 = could plausibly go anywhere in the list). \
         Return ALL items — do not filter any out.
         """
 

@@ -108,6 +108,27 @@ final class PairwiseSession: ObservableObject {
         }
     }
 
+    /// Optional criteria text passed to AI seeding (e.g. "work tasks, deadlines this week").
+    var aiCriteria: String {
+        get { UserDefaults.standard.string(forKey: "ai_criteria") ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: "ai_criteria") }
+    }
+
+    /// Limit comparisons to the top N AI-ranked items. Nil = no limit (all items).
+    var aiTopN: Int? {
+        get {
+            let v = UserDefaults.standard.integer(forKey: "ai_top_n")
+            return v > 0 ? v : nil
+        }
+        set {
+            if let v = newValue, v > 0 {
+                UserDefaults.standard.set(v, forKey: "ai_top_n")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "ai_top_n")
+            }
+        }
+    }
+
     // MARK: - Starting a Session
 
     /// Begins a session for the given lists. Fetches items, runs AI seeding, then
@@ -144,6 +165,12 @@ final class PairwiseSession: ObservableObject {
         // 2. Attempt AI seeding to set initial Elo ratings.
         await runSeeding(context: context)
 
+        // Guard: if the task was cancelled (e.g. user dismissed) while seeding, bail out cleanly.
+        guard !Task.isCancelled else {
+            phase = .idle
+            return
+        }
+
         // 3. Start the Elo engine with (possibly seeded) items.
         eloEngine.start(with: sessionItems)
         phase = .comparing
@@ -178,15 +205,16 @@ final class PairwiseSession: ObservableObject {
             )
         }
 
+        let criteria = aiCriteria.isEmpty ? nil : aiCriteria
         var seeds: [AnthropicService.SeededRank]?
 
         switch aiPreference {
         case .onDeviceFirst:
-            seeds = await tryOnDeviceSeeding(summaries: summaries)
-            if seeds == nil { seeds = await tryAPISeeding(summaries: summaries) }
+            seeds = await tryOnDeviceSeeding(summaries: summaries, criteria: criteria)
+            if seeds == nil { seeds = await tryAPISeeding(summaries: summaries, criteria: criteria) }
         case .apiFirst:
-            seeds = await tryAPISeeding(summaries: summaries)
-            if seeds == nil { seeds = await tryOnDeviceSeeding(summaries: summaries) }
+            seeds = await tryAPISeeding(summaries: summaries, criteria: criteria)
+            if seeds == nil { seeds = await tryOnDeviceSeeding(summaries: summaries, criteria: criteria) }
         case .none:
             break
         }
@@ -197,20 +225,28 @@ final class PairwiseSession: ObservableObject {
         }
 
         applySeedRatings(seeds, context: context)
+
+        // Truncate to top N if configured — only keep the highest-ranked items.
+        if let n = aiTopN, n > 0, sessionItems.count > n {
+            let topIDs = Set(seeds.sorted { $0.rank < $1.rank }.prefix(n).map(\.id))
+            sessionItems = sessionItems.filter { topIDs.contains($0.id) }
+        }
     }
 
     private func tryOnDeviceSeeding(
-        summaries: [AnthropicService.ReminderSummary]
+        summaries: [AnthropicService.ReminderSummary],
+        criteria: String?
     ) async -> [AnthropicService.SeededRank]? {
         guard FoundationModelService.isAvailable else { return nil }
-        return try? await FoundationModelService().seedRanking(summaries)
+        return try? await FoundationModelService().seedRanking(summaries, criteria: criteria)
     }
 
     private func tryAPISeeding(
-        summaries: [AnthropicService.ReminderSummary]
+        summaries: [AnthropicService.ReminderSummary],
+        criteria: String?
     ) async -> [AnthropicService.SeededRank]? {
         guard let apiKey = KeychainService.load(), !apiKey.isEmpty else { return nil }
-        return try? await AnthropicService(apiKey: apiKey).seedRanking(summaries)
+        return try? await AnthropicService(apiKey: apiKey).seedRanking(summaries, criteria: criteria)
     }
 
     /// Maps AI seed ranks and confidence scores into initial Elo ratings and K-factors,
