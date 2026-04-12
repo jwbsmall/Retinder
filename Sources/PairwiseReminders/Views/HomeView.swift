@@ -2,10 +2,26 @@ import SwiftUI
 import SwiftData
 import EventKit
 
-/// Root view. Shows all Reminders lists as collapsible rows.
-/// Lists are collapsed by default; tap a header to expand and see ranked items.
-/// Select lists via the circle checkmark, then tap the prominent Prioritise button.
+/// Root view. Shows all Reminders lists with configurable grouping.
+/// Default: grouped by list with collapsible sections.
+/// Alternate modes: flat (all reminders sorted by Elo) or grouped by due date.
 struct HomeView: View {
+
+    // MARK: - Grouping
+
+    enum GroupingMode: String, CaseIterable {
+        case byList    = "by_list"
+        case flat      = "flat"
+        case byDueDate = "by_due_date"
+
+        var label: String {
+            switch self {
+            case .byList:    return "List"
+            case .flat:      return "All"
+            case .byDueDate: return "Due Date"
+            }
+        }
+    }
 
     @EnvironmentObject private var remindersManager: RemindersManager
     @EnvironmentObject private var session: PairwiseSession
@@ -26,9 +42,55 @@ struct HomeView: View {
     @State private var itemsByList: [String: [ReminderItem]] = [:]
     @State private var loadingListIDs: Set<String> = []
 
+    @State private var groupingMode: GroupingMode = {
+        GroupingMode(rawValue: UserDefaults.standard.string(forKey: "grouping_mode") ?? "") ?? .byList
+    }()
+
     private var allExpanded: Bool {
         !remindersManager.lists.isEmpty &&
         remindersManager.lists.allSatisfy { expandedListIDs.contains($0.calendarIdentifier) }
+    }
+
+    // MARK: - Cross-list data (flat + date modes)
+
+    private var allItems: [ReminderItem] {
+        itemsByList.values.flatMap { $0 }.sorted { $0.eloRating > $1.eloRating }
+    }
+
+    private var globalEloMin: Double { allItems.filter { $0.comparisonCount > 0 }.last?.eloRating ?? 1000 }
+    private var globalEloMax: Double { allItems.filter { $0.comparisonCount > 0 }.first?.eloRating ?? 1000 }
+
+    private struct DateSection: Identifiable {
+        let id: String
+        let items: [ReminderItem]
+    }
+
+    private var dueDateSections: [DateSection] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: today)!
+        let nextWeek = cal.date(byAdding: .day, value: 7, to: today)!
+
+        var buckets: [String: [ReminderItem]] = [
+            "Today": [], "Tomorrow": [], "This Week": [], "Later": [], "No Date": []
+        ]
+        let order = ["Today", "Tomorrow", "This Week", "Later", "No Date"]
+
+        for item in allItems {
+            if let due = item.dueDate {
+                let day = cal.startOfDay(for: due)
+                if day <= today          { buckets["Today"]!.append(item) }
+                else if day <= tomorrow  { buckets["Tomorrow"]!.append(item) }
+                else if day < nextWeek   { buckets["This Week"]!.append(item) }
+                else                     { buckets["Later"]!.append(item) }
+            } else {
+                buckets["No Date"]!.append(item)
+            }
+        }
+        return order.compactMap { key -> DateSection? in
+            guard let items = buckets[key], !items.isEmpty else { return nil }
+            return DateSection(id: key, items: items)
+        }
     }
 
     var body: some View {
@@ -38,8 +100,13 @@ struct HomeView: View {
                     emptyState
                         .frame(maxHeight: .infinity)
                 } else {
-                    listContent
-                        .frame(maxHeight: .infinity)
+                    groupingPickerBar
+
+                    switch groupingMode {
+                    case .byList:    listContent.frame(maxHeight: .infinity)
+                    case .flat:      flatContent.frame(maxHeight: .infinity)
+                    case .byDueDate: dueDateContent.frame(maxHeight: .infinity)
+                    }
                 }
                 Divider()
                 prioritiseButton
@@ -56,7 +123,7 @@ struct HomeView: View {
                             selectedListIDs = []
                         }
                         .font(.subheadline)
-                    } else {
+                    } else if groupingMode == .byList {
                         Button(allExpanded ? "Collapse All" : "Expand All") {
                             if allExpanded {
                                 expandedListIDs = []
@@ -126,6 +193,10 @@ struct HomeView: View {
             .onChange(of: session.phase) { _, phase in
                 if phase == .idle { showPrioritise = false }
             }
+            .onChange(of: groupingMode) { _, mode in
+                UserDefaults.standard.set(mode.rawValue, forKey: "grouping_mode")
+                if mode != .byList { loadAllItemsIfNeeded() }
+            }
             .task { await remindersManager.fetchLists() }
             .refreshable {
                 itemsByList = [:]
@@ -135,7 +206,21 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - List Content
+    // MARK: - Grouping Picker
+
+    private var groupingPickerBar: some View {
+        Picker("Group by", selection: $groupingMode) {
+            ForEach(GroupingMode.allCases, id: \.self) { mode in
+                Text(mode.label).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
+        .background(Color(.systemGroupedBackground))
+    }
+
+    // MARK: - List Content (by list)
 
     private var listContent: some View {
         List {
@@ -195,6 +280,93 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Flat Content (all reminders sorted by Elo)
+
+    private var flatContent: some View {
+        List {
+            if allItems.isEmpty {
+                Text("No incomplete reminders")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                let ranked = allItems.filter { $0.comparisonCount > 0 }
+                let unranked = allItems.filter { $0.comparisonCount == 0 }
+                ForEach(Array(ranked.enumerated()), id: \.element.id) { index, item in
+                    ExpandedItemRow(
+                        item: item, rank: index + 1,
+                        eloMin: globalEloMin, eloMax: globalEloMax,
+                        showListName: true
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedList = remindersManager.lists
+                            .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                    }
+                }
+                ForEach(unranked, id: \.id) { item in
+                    ExpandedItemRow(
+                        item: item, rank: nil,
+                        eloMin: globalEloMin, eloMax: globalEloMax,
+                        showListName: true
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedList = remindersManager.lists
+                            .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .task { loadAllItemsIfNeeded() }
+    }
+
+    // MARK: - Due Date Content (sections by date bucket)
+
+    private var dueDateContent: some View {
+        List {
+            if allItems.isEmpty {
+                Text("No incomplete reminders")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(dueDateSections) { section in
+                    Section(section.id) {
+                        let ranked = section.items.filter { $0.comparisonCount > 0 }
+                        let unranked = section.items.filter { $0.comparisonCount == 0 }
+                        // Rank within this section for display purposes
+                        ForEach(Array(ranked.enumerated()), id: \.element.id) { index, item in
+                            ExpandedItemRow(
+                                item: item, rank: nil,
+                                eloMin: globalEloMin, eloMax: globalEloMax,
+                                showListName: true
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedList = remindersManager.lists
+                                    .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                            }
+                        }
+                        ForEach(unranked, id: \.id) { item in
+                            ExpandedItemRow(
+                                item: item, rank: nil,
+                                eloMin: globalEloMin, eloMax: globalEloMax,
+                                showListName: true
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedList = remindersManager.lists
+                                    .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .task { loadAllItemsIfNeeded() }
     }
 
     // MARK: - Prioritise Button
@@ -283,6 +455,12 @@ struct HomeView: View {
             )) ?? []
             itemsByList[id] = loaded
             loadingListIDs.remove(id)
+        }
+    }
+
+    private func loadAllItemsIfNeeded() {
+        for list in remindersManager.lists {
+            loadItemsIfNeeded(for: list.calendarIdentifier)
         }
     }
 }
@@ -470,6 +648,8 @@ private struct ExpandedItemRow: View {
     let rank: Int?
     let eloMin: Double
     let eloMax: Double
+    /// Show the list name as a subtitle — useful in flat/date grouping modes.
+    var showListName: Bool = false
 
     private var eloStrength: Double {
         guard rank != nil, eloMax > eloMin else { return 0 }
@@ -505,6 +685,12 @@ private struct ExpandedItemRow: View {
                     .font(.subheadline)
                     .lineLimit(1)
                     .foregroundStyle(.primary)
+
+                if showListName {
+                    Text(item.listName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
                 // Continuous Elo strength bar — only for ranked items
                 if rank != nil {
