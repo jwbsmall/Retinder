@@ -66,7 +66,9 @@ struct PairwiseView: View {
                     session.finish(eloEngine: engine, context: modelContext)
                 }
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(.secondary)
 
                 Spacer()
 
@@ -210,16 +212,39 @@ struct PairwiseView: View {
             .padding(.horizontal)
             .padding(.top, 12)
 
-            // Secondary actions
-            HStack(spacing: 20) {
-                Button("About equal") { engine.equal() }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text("·").foregroundStyle(.tertiary)
-                Button("Skip") { engine.skip() }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            // Secondary actions — equal-width bordered buttons
+            HStack(spacing: 10) {
+                Button { engine.equal() } label: {
+                    Text("About equal")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(Color(.secondarySystemBackground))
+                        .foregroundStyle(.secondary)
+                        .clipShape(RoundedRectangle(cornerRadius: 13))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 13)
+                                .strokeBorder(Color(.separator), lineWidth: 0.5)
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Button { engine.skip() } label: {
+                    Text("Skip")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(Color(.secondarySystemBackground))
+                        .foregroundStyle(.secondary)
+                        .clipShape(RoundedRectangle(cornerRadius: 13))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 13)
+                                .strokeBorder(Color(.separator), lineWidth: 0.5)
+                        )
+                }
+                .buttonStyle(.plain)
             }
+            .padding(.horizontal)
             .padding(.top, 10)
 
             Spacer(minLength: 20)
