@@ -176,6 +176,37 @@ final class PairwiseSession: ObservableObject {
         phase = .comparing
     }
 
+    /// Begins a session for a specific pre-loaded set of items (individual selection path).
+    /// Skips the fetch step — items are already in memory.
+    func start(
+        items: [ReminderItem],
+        eloEngine: EloEngine,
+        context: ModelContext
+    ) async {
+        selectedListIDs = Set(items.compactMap { $0.ekReminder.calendar?.calendarIdentifier })
+        sessionItems = items
+        rankedItems = []
+        seedingFailed = false
+        seedingError = nil
+        eloEngine.reset()
+        phase = .seeding
+
+        guard !sessionItems.isEmpty else {
+            phase = .idle
+            return
+        }
+
+        await runSeeding(context: context)
+
+        guard !Task.isCancelled else {
+            phase = .idle
+            return
+        }
+
+        eloEngine.start(with: sessionItems)
+        phase = .comparing
+    }
+
     /// Called by PairwiseView when the user taps "Done for now" or the engine converges.
     func finish(eloEngine: EloEngine, context: ModelContext) {
         rankedItems = eloEngine.finish(context: context)

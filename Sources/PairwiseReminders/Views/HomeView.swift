@@ -38,6 +38,7 @@ struct HomeView: View {
 
     @State private var expandedListIDs: Set<String> = []
     @State private var selectedListIDs: Set<String> = []
+    @State private var selectedItemIDs: Set<String> = []
     @State private var isSelecting: Bool = false
     @State private var itemsByList: [String: [ReminderItem]] = [:]
     @State private var loadingListIDs: Set<String> = []
@@ -121,6 +122,7 @@ struct HomeView: View {
                         Button("Cancel") {
                             isSelecting = false
                             selectedListIDs = []
+                            selectedItemIDs = []
                         }
                         .font(.subheadline)
                     } else if groupingMode == .byList {
@@ -150,7 +152,7 @@ struct HomeView: View {
                         }
                         Button(isSelecting ? "Done" : "Select") {
                             isSelecting.toggle()
-                            if !isSelecting { selectedListIDs = [] }
+                            if !isSelecting { selectedListIDs = []; selectedItemIDs = [] }
                         }
                         .font(.subheadline.weight(isSelecting ? .semibold : .regular))
                     }
@@ -166,17 +168,31 @@ struct HomeView: View {
                 HistoryView()
             }
             .sheet(isPresented: $showPrioritiseOptions) {
-                PrioritiseOptionsSheet(listIDs: selectedListIDs) {
+                PrioritiseOptionsSheet(selectionLabel: prioritiseLabel) {
                     showPrioritiseOptions = false
                     showPrioritise = true
                     isSelecting = false
-                    Task {
-                        await session.start(
-                            listIDs: selectedListIDs,
-                            remindersManager: remindersManager,
-                            eloEngine: eloEngine,
-                            context: modelContext
-                        )
+                    if !selectedItemIDs.isEmpty {
+                        // Item-level selection: pass pre-loaded items directly.
+                        let ids = selectedItemIDs
+                        let items = itemsByList.values.flatMap { $0 }.filter { ids.contains($0.id) }
+                        selectedItemIDs = []
+                        Task {
+                            await session.start(
+                                items: items,
+                                eloEngine: eloEngine,
+                                context: modelContext
+                            )
+                        }
+                    } else {
+                        Task {
+                            await session.start(
+                                listIDs: selectedListIDs,
+                                remindersManager: remindersManager,
+                                eloEngine: eloEngine,
+                                context: modelContext
+                            )
+                        }
                     }
                 }
                 .presentationDetents([.medium])
@@ -269,14 +285,24 @@ struct HomeView: View {
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(Array(ranked.enumerated()), id: \.element.id) { index, item in
-                    ExpandedItemRow(item: item, rank: index + 1, eloMin: eloMin, eloMax: eloMax)
-                        .contentShape(Rectangle())
-                        .onTapGesture { selectedList = calendar }
+                    ExpandedItemRow(
+                        item: item, rank: index + 1, eloMin: eloMin, eloMax: eloMax,
+                        isSelecting: isSelecting, isSelected: selectedItemIDs.contains(item.id)
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if isSelecting { toggleItemSelect(item.id) } else { selectedList = calendar }
+                    }
                 }
                 ForEach(unranked, id: \.id) { item in
-                    ExpandedItemRow(item: item, rank: nil, eloMin: eloMin, eloMax: eloMax)
-                        .contentShape(Rectangle())
-                        .onTapGesture { selectedList = calendar }
+                    ExpandedItemRow(
+                        item: item, rank: nil, eloMin: eloMin, eloMax: eloMax,
+                        isSelecting: isSelecting, isSelected: selectedItemIDs.contains(item.id)
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if isSelecting { toggleItemSelect(item.id) } else { selectedList = calendar }
+                    }
                 }
             }
         }
@@ -297,24 +323,36 @@ struct HomeView: View {
                     ExpandedItemRow(
                         item: item, rank: index + 1,
                         eloMin: globalEloMin, eloMax: globalEloMax,
-                        showListName: true
+                        showListName: true,
+                        isSelecting: isSelecting,
+                        isSelected: selectedItemIDs.contains(item.id)
                     )
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        selectedList = remindersManager.lists
-                            .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                        if isSelecting {
+                            toggleItemSelect(item.id)
+                        } else {
+                            selectedList = remindersManager.lists
+                                .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                        }
                     }
                 }
                 ForEach(unranked, id: \.id) { item in
                     ExpandedItemRow(
                         item: item, rank: nil,
                         eloMin: globalEloMin, eloMax: globalEloMax,
-                        showListName: true
+                        showListName: true,
+                        isSelecting: isSelecting,
+                        isSelected: selectedItemIDs.contains(item.id)
                     )
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        selectedList = remindersManager.lists
-                            .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                        if isSelecting {
+                            toggleItemSelect(item.id)
+                        } else {
+                            selectedList = remindersManager.lists
+                                .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                        }
                     }
                 }
             }
@@ -341,24 +379,36 @@ struct HomeView: View {
                             ExpandedItemRow(
                                 item: item, rank: nil,
                                 eloMin: globalEloMin, eloMax: globalEloMax,
-                                showListName: true
+                                showListName: true,
+                                isSelecting: isSelecting,
+                                isSelected: selectedItemIDs.contains(item.id)
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                selectedList = remindersManager.lists
-                                    .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                                if isSelecting {
+                                    toggleItemSelect(item.id)
+                                } else {
+                                    selectedList = remindersManager.lists
+                                        .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                                }
                             }
                         }
                         ForEach(unranked, id: \.id) { item in
                             ExpandedItemRow(
                                 item: item, rank: nil,
                                 eloMin: globalEloMin, eloMax: globalEloMax,
-                                showListName: true
+                                showListName: true,
+                                isSelecting: isSelecting,
+                                isSelected: selectedItemIDs.contains(item.id)
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                selectedList = remindersManager.lists
-                                    .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                                if isSelecting {
+                                    toggleItemSelect(item.id)
+                                } else {
+                                    selectedList = remindersManager.lists
+                                        .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
+                                }
                             }
                         }
                     }
@@ -371,10 +421,12 @@ struct HomeView: View {
 
     // MARK: - Prioritise Button
 
+    private var hasSelection: Bool { !selectedListIDs.isEmpty || !selectedItemIDs.isEmpty }
+
     private var prioritiseButton: some View {
         VStack(spacing: 0) {
             Button {
-                if selectedListIDs.isEmpty {
+                if !hasSelection {
                     // Shortcut: tapping the button starts selection mode
                     isSelecting = true
                 } else {
@@ -384,6 +436,10 @@ struct HomeView: View {
                 Text(prioritiseLabel)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(hasSelection ? Color.blue : Color(.systemGray4))
+                    .foregroundStyle(hasSelection ? .white : Color.secondary)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -395,9 +451,15 @@ struct HomeView: View {
     }
 
     private var prioritiseLabel: String {
-        if selectedListIDs.isEmpty { return "Select Lists to Prioritise" }
-        let n = selectedListIDs.count
-        return "Prioritise \(n == 1 ? "1 List" : "\(n) Lists")"
+        if !selectedItemIDs.isEmpty {
+            let n = selectedItemIDs.count
+            return "Prioritise \(n == 1 ? "1 Item" : "\(n) Items")"
+        }
+        if !selectedListIDs.isEmpty {
+            let n = selectedListIDs.count
+            return "Prioritise \(n == 1 ? "1 List" : "\(n) Lists")"
+        }
+        return "Select to Prioritise"
     }
 
     // MARK: - Empty State
@@ -428,6 +490,14 @@ struct HomeView: View {
             selectedListIDs.remove(id)
         } else {
             selectedListIDs.insert(id)
+        }
+    }
+
+    private func toggleItemSelect(_ id: String) {
+        if selectedItemIDs.contains(id) {
+            selectedItemIDs.remove(id)
+        } else {
+            selectedItemIDs.insert(id)
         }
     }
 
@@ -490,7 +560,7 @@ private struct PrioritiseFlow: View {
 /// Tapping Start applies settings and triggers the session.
 private struct PrioritiseOptionsSheet: View {
 
-    let listIDs: Set<String>
+    let selectionLabel: String
     let onStart: () -> Void
 
     @EnvironmentObject private var session: PairwiseSession
@@ -504,8 +574,8 @@ private struct PrioritiseOptionsSheet: View {
 
     private static let topNOptions = [5, 10, 15, 20, 30]
 
-    init(listIDs: Set<String>, onStart: @escaping () -> Void) {
-        self.listIDs = listIDs
+    init(selectionLabel: String, onStart: @escaping () -> Void) {
+        self.selectionLabel = selectionLabel
         self.onStart = onStart
         let defaults = UserDefaults.standard
         _rankingMode = State(initialValue:
@@ -590,7 +660,7 @@ private struct PrioritiseOptionsSheet: View {
                     Button {
                         applyAndStart()
                     } label: {
-                        Text("Start Prioritising \(listIDs.count == 1 ? "1 List" : "\(listIDs.count) Lists")")
+                        Text("Start Prioritising \(selectionLabel)")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 4)
@@ -697,6 +767,8 @@ private struct ExpandedItemRow: View {
     let eloMax: Double
     /// Show the list name as a subtitle — useful in flat/date grouping modes.
     var showListName: Bool = false
+    var isSelecting: Bool = false
+    var isSelected: Bool = false
 
     private var eloStrength: Double {
         guard rank != nil, eloMax > eloMin else { return 0 }
@@ -711,8 +783,13 @@ private struct ExpandedItemRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // Rank badge for compared items; plain circle for unranked (matches Reminders.app)
-            if let r = rank {
+            // In selection mode: checkmark circle. Otherwise: rank badge or plain circle.
+            if isSelecting {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? .blue : Color(.tertiaryLabel))
+                    .font(.title3)
+                    .animation(.spring(response: 0.2), value: isSelected)
+            } else if let r = rank {
                 ZStack {
                     Circle()
                         .fill(badgeColor(r))
