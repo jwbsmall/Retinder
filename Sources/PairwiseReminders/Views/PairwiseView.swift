@@ -143,7 +143,7 @@ struct PairwiseView: View {
         let bottomItem = isFlipped ? pair.0 : pair.1
 
         return VStack(spacing: 0) {
-            Spacer()
+            Spacer(minLength: 8)
 
             // Compact top card — tap to pick it, long-press to edit
             Button { engine.choose(winner: topItem) } label: {
@@ -167,31 +167,60 @@ struct PairwiseView: View {
                 .padding(.horizontal)
                 .simultaneousGesture(LongPressGesture().onEnded { _ in editingItem = bottomItem })
 
-            swipeHints
-                .padding(.top, 10)
-
-            HStack(spacing: 12) {
+            // Explicit choice buttons — clear affordance, swipe still works as a shortcut
+            HStack(spacing: 10) {
                 Button {
-                    engine.equal()
+                    engine.choose(winner: topItem)
                 } label: {
-                    Label("Equal", systemImage: "equal")
-                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.up")
+                            .font(.subheadline.bold())
+                        Text("Top one")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(Color(.secondarySystemBackground))
+                    .foregroundStyle(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 13))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 13)
+                            .strokeBorder(Color(.separator), lineWidth: 0.5)
+                    )
                 }
-                .buttonStyle(.bordered)
-                .tint(.secondary)
+                .buttonStyle(.plain)
 
                 Button {
-                    engine.skip()
+                    engine.choose(winner: bottomItem)
                 } label: {
-                    Label("Skip", systemImage: "forward.fill")
-                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down")
+                            .font(.subheadline.bold())
+                        Text("This one")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(Color.blue)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 13))
                 }
-                .buttonStyle(.bordered)
-                .tint(.secondary)
+                .buttonStyle(.plain)
             }
-            .controlSize(.regular)
             .padding(.horizontal)
             .padding(.top, 12)
+
+            // Secondary actions
+            HStack(spacing: 20) {
+                Button("About equal") { engine.equal() }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("·").foregroundStyle(.tertiary)
+                Button("Skip") { engine.skip() }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 10)
 
             Spacer(minLength: 20)
         }
@@ -243,26 +272,6 @@ struct PairwiseView: View {
                     .opacity(Double(magnitude))
                 )
         }
-    }
-
-    private var swipeHints: some View {
-        HStack {
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.left")
-                    .font(.caption.bold())
-                Text("Pick top card")
-                    .font(.caption)
-            }
-            Spacer()
-            HStack(spacing: 4) {
-                Text("Pick this card")
-                    .font(.caption)
-                Image(systemName: "arrow.right")
-                    .font(.caption.bold())
-            }
-        }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 24)
     }
 
     // MARK: - Compact Top Card
