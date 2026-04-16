@@ -129,6 +129,23 @@ final class PairwiseSession: ObservableObject {
         }
     }
 
+    // MARK: - Due-date Defaults
+
+    var defaultHighDueTarget: DueTarget {
+        get { DueTarget(rawValue: UserDefaults.standard.string(forKey: "due_default_high") ?? "") ?? .today }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "due_default_high") }
+    }
+
+    var defaultMediumDueTarget: DueTarget {
+        get { DueTarget(rawValue: UserDefaults.standard.string(forKey: "due_default_medium") ?? "") ?? .tomorrow }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "due_default_medium") }
+    }
+
+    var defaultLowDueTarget: DueTarget {
+        get { DueTarget(rawValue: UserDefaults.standard.string(forKey: "due_default_low") ?? "") ?? .nextWeek }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "due_default_low") }
+    }
+
     // MARK: - Starting a Session
 
     /// Begins a session for the given lists. Fetches items, runs AI seeding, then

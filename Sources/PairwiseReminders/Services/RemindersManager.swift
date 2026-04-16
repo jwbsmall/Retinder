@@ -197,7 +197,14 @@ final class RemindersManager: ObservableObject {
 
     /// Sets the due date for the top `count` ranked items, then commits.
     /// When `includeTime` is true, preserves the time component from `dueDate`.
-    func applyDueDates(_ items: [ReminderItem], count: Int, dueDate: Date, includeTime: Bool = false) throws {
+    /// When `addAlarms` is true, attaches an EKAlarm at the due date to each affected item.
+    func applyDueDates(
+        _ items: [ReminderItem],
+        count: Int,
+        dueDate: Date,
+        includeTime: Bool = false,
+        addAlarms: Bool = false
+    ) throws {
         guard !items.isEmpty else { return }
         let n = min(count, items.count)
         let fields: Set<Calendar.Component> = includeTime
@@ -207,10 +214,45 @@ final class RemindersManager: ObservableObject {
         for (index, item) in items.enumerated() {
             if index < n {
                 item.ekReminder.dueDateComponents = components
+                if addAlarms {
+                    removeExistingRelativeAlarms(from: item.ekReminder)
+                    item.ekReminder.addAlarm(EKAlarm(relativeOffset: 0))
+                }
             }
             try store.save(item.ekReminder, commit: false)
         }
         try store.commit()
+    }
+
+    /// Assigns per-item due dates from explicit (item, date) pairs, then commits.
+    /// Used in tiered priority mode where each tier has its own date target.
+    /// When `addAlarms` is true, attaches an EKAlarm at the due date to each item.
+    func applyTieredDueDates(
+        _ assignments: [(ReminderItem, Date)],
+        includeTime: Bool = false,
+        addAlarms: Bool = false
+    ) throws {
+        guard !assignments.isEmpty else { return }
+        let fields: Set<Calendar.Component> = includeTime
+            ? [.year, .month, .day, .hour, .minute]
+            : [.year, .month, .day]
+        for (item, date) in assignments {
+            item.ekReminder.dueDateComponents = Calendar.current.dateComponents(fields, from: date)
+            if addAlarms {
+                removeExistingRelativeAlarms(from: item.ekReminder)
+                item.ekReminder.addAlarm(EKAlarm(relativeOffset: 0))
+            }
+            try store.save(item.ekReminder, commit: false)
+        }
+        try store.commit()
+    }
+
+    /// Removes any zero-offset relative alarms previously added by Retinder, to avoid duplicates.
+    private func removeExistingRelativeAlarms(from reminder: EKReminder) {
+        guard let alarms = reminder.alarms else { return }
+        for alarm in alarms where alarm.absoluteDate == nil && alarm.relativeOffset == 0 {
+            reminder.removeAlarm(alarm)
+        }
     }
 
     /// Marks the top `count` items as High priority and the rest as None, then commits.
