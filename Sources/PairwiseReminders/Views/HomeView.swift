@@ -38,10 +38,12 @@ struct HomeView: View {
 
     @State private var expandedListIDs: Set<String> = []
     @State private var selectedListIDs: Set<String> = []
-    @State private var selectedItemIDs: Set<String> = []
-    @State private var isSelecting: Bool = false
+    @State private var itemSelection: Set<String> = []  // item IDs bound to List(selection:)
+    @State private var editMode: EditMode = .inactive
     @State private var itemsByList: [String: [ReminderItem]] = [:]
     @State private var loadingListIDs: Set<String> = []
+
+    private var isSelecting: Bool { editMode == .active }
 
     @State private var groupingMode: GroupingMode = {
         GroupingMode(rawValue: UserDefaults.standard.string(forKey: "grouping_mode") ?? "") ?? .byList
@@ -120,9 +122,9 @@ struct HomeView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     if isSelecting {
                         Button("Cancel") {
-                            isSelecting = false
+                            editMode = .inactive
                             selectedListIDs = []
-                            selectedItemIDs = []
+                            itemSelection = []
                         }
                         .font(.subheadline)
                     } else if groupingMode == .byList {
@@ -151,8 +153,13 @@ struct HomeView: View {
                             }
                         }
                         Button(isSelecting ? "Done" : "Select") {
-                            isSelecting.toggle()
-                            if !isSelecting { selectedListIDs = []; selectedItemIDs = [] }
+                            if editMode == .active {
+                                editMode = .inactive
+                                selectedListIDs = []
+                                itemSelection = []
+                            } else {
+                                editMode = .active
+                            }
                         }
                         .font(.subheadline.weight(isSelecting ? .semibold : .regular))
                     }
@@ -171,12 +178,12 @@ struct HomeView: View {
                 PrioritiseOptionsSheet(selectionLabel: prioritiseLabel) {
                     showPrioritiseOptions = false
                     showPrioritise = true
-                    isSelecting = false
-                    if !selectedItemIDs.isEmpty {
+                    editMode = .inactive
+                    if !itemSelection.isEmpty {
                         // Item-level selection: pass pre-loaded items directly.
-                        let ids = selectedItemIDs
+                        let ids = itemSelection
                         let items = itemsByList.values.flatMap { $0 }.filter { ids.contains($0.id) }
-                        selectedItemIDs = []
+                        itemSelection = []
                         Task {
                             await session.start(
                                 items: items,
@@ -239,25 +246,38 @@ struct HomeView: View {
     // MARK: - List Content (by list)
 
     private var listContent: some View {
-        List {
+        List(selection: $itemSelection) {
             ForEach(remindersManager.lists, id: \.calendarIdentifier) { calendar in
                 let id = calendar.calendarIdentifier
                 let listRecords = records(for: calendar)
 
-                DisclosureGroup(isExpanded: expandBinding(for: id)) {
-                    expandedContent(for: id, calendar: calendar, records: listRecords)
-                } label: {
-                    CollapsedListHeader(
-                        calendar: calendar,
-                        records: listRecords,
-                        isSelected: selectedListIDs.contains(id),
-                        isSelecting: isSelecting,
-                        onToggleSelect: { toggleSelect(id) }
-                    )
+                Section {
+                    if expandedListIDs.contains(id) {
+                        expandedContent(for: id, calendar: calendar, records: listRecords)
+                    }
+                } header: {
+                    Button {
+                        if expandedListIDs.contains(id) {
+                            expandedListIDs.remove(id)
+                        } else {
+                            expandedListIDs.insert(id)
+                            loadItemsIfNeeded(for: id)
+                        }
+                    } label: {
+                        CollapsedListHeader(
+                            calendar: calendar,
+                            records: listRecords,
+                            isSelected: selectedListIDs.contains(id),
+                            isSelecting: isSelecting,
+                            onToggleSelect: { toggleSelect(id) }
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .environment(\.editMode, $editMode)
     }
 
     @ViewBuilder
@@ -285,24 +305,22 @@ struct HomeView: View {
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(Array(ranked.enumerated()), id: \.element.id) { index, item in
-                    ExpandedItemRow(
-                        item: item, rank: index + 1, eloMin: eloMin, eloMax: eloMax,
-                        isSelecting: isSelecting, isSelected: selectedItemIDs.contains(item.id)
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if isSelecting { toggleItemSelect(item.id) } else { selectedList = calendar }
-                    }
+                    ExpandedItemRow(item: item, rank: index + 1, eloMin: eloMin, eloMax: eloMax)
+                        .tag(item.id)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard editMode == .inactive else { return }
+                            selectedList = calendar
+                        }
                 }
                 ForEach(unranked, id: \.id) { item in
-                    ExpandedItemRow(
-                        item: item, rank: nil, eloMin: eloMin, eloMax: eloMax,
-                        isSelecting: isSelecting, isSelected: selectedItemIDs.contains(item.id)
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if isSelecting { toggleItemSelect(item.id) } else { selectedList = calendar }
-                    }
+                    ExpandedItemRow(item: item, rank: nil, eloMin: eloMin, eloMax: eloMax)
+                        .tag(item.id)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard editMode == .inactive else { return }
+                            selectedList = calendar
+                        }
                 }
             }
         }
@@ -311,7 +329,7 @@ struct HomeView: View {
     // MARK: - Flat Content (all reminders sorted by Elo)
 
     private var flatContent: some View {
-        List {
+        List(selection: $itemSelection) {
             if allItems.isEmpty {
                 Text("No incomplete reminders")
                     .font(.caption)
@@ -323,48 +341,41 @@ struct HomeView: View {
                     ExpandedItemRow(
                         item: item, rank: index + 1,
                         eloMin: globalEloMin, eloMax: globalEloMax,
-                        showListName: true,
-                        isSelecting: isSelecting,
-                        isSelected: selectedItemIDs.contains(item.id)
+                        showListName: true
                     )
+                    .tag(item.id)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if isSelecting {
-                            toggleItemSelect(item.id)
-                        } else {
-                            selectedList = remindersManager.lists
-                                .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
-                        }
+                        guard editMode == .inactive else { return }
+                        selectedList = remindersManager.lists
+                            .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
                     }
                 }
                 ForEach(unranked, id: \.id) { item in
                     ExpandedItemRow(
                         item: item, rank: nil,
                         eloMin: globalEloMin, eloMax: globalEloMax,
-                        showListName: true,
-                        isSelecting: isSelecting,
-                        isSelected: selectedItemIDs.contains(item.id)
+                        showListName: true
                     )
+                    .tag(item.id)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if isSelecting {
-                            toggleItemSelect(item.id)
-                        } else {
-                            selectedList = remindersManager.lists
-                                .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
-                        }
+                        guard editMode == .inactive else { return }
+                        selectedList = remindersManager.lists
+                            .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
                     }
                 }
             }
         }
         .listStyle(.plain)
+        .environment(\.editMode, $editMode)
         .task { loadAllItemsIfNeeded() }
     }
 
     // MARK: - Due Date Content (sections by date bucket)
 
     private var dueDateContent: some View {
-        List {
+        List(selection: $itemSelection) {
             if allItems.isEmpty {
                 Text("No incomplete reminders")
                     .font(.caption)
@@ -374,41 +385,32 @@ struct HomeView: View {
                     Section(section.id) {
                         let ranked = section.items.filter { $0.comparisonCount > 0 }
                         let unranked = section.items.filter { $0.comparisonCount == 0 }
-                        // Rank within this section for display purposes
-                        ForEach(Array(ranked.enumerated()), id: \.element.id) { index, item in
+                        ForEach(ranked, id: \.id) { item in
                             ExpandedItemRow(
                                 item: item, rank: nil,
                                 eloMin: globalEloMin, eloMax: globalEloMax,
-                                showListName: true,
-                                isSelecting: isSelecting,
-                                isSelected: selectedItemIDs.contains(item.id)
+                                showListName: true
                             )
+                            .tag(item.id)
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                if isSelecting {
-                                    toggleItemSelect(item.id)
-                                } else {
-                                    selectedList = remindersManager.lists
-                                        .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
-                                }
+                                guard editMode == .inactive else { return }
+                                selectedList = remindersManager.lists
+                                    .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
                             }
                         }
                         ForEach(unranked, id: \.id) { item in
                             ExpandedItemRow(
                                 item: item, rank: nil,
                                 eloMin: globalEloMin, eloMax: globalEloMax,
-                                showListName: true,
-                                isSelecting: isSelecting,
-                                isSelected: selectedItemIDs.contains(item.id)
+                                showListName: true
                             )
+                            .tag(item.id)
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                if isSelecting {
-                                    toggleItemSelect(item.id)
-                                } else {
-                                    selectedList = remindersManager.lists
-                                        .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
-                                }
+                                guard editMode == .inactive else { return }
+                                selectedList = remindersManager.lists
+                                    .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
                             }
                         }
                     }
@@ -416,19 +418,20 @@ struct HomeView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .environment(\.editMode, $editMode)
         .task { loadAllItemsIfNeeded() }
     }
 
     // MARK: - Prioritise Button
 
-    private var hasSelection: Bool { !selectedListIDs.isEmpty || !selectedItemIDs.isEmpty }
+    private var hasSelection: Bool { !selectedListIDs.isEmpty || !itemSelection.isEmpty }
 
     private var prioritiseButton: some View {
         VStack(spacing: 0) {
             Button {
                 if !hasSelection {
                     // Shortcut: tapping the button starts selection mode
-                    isSelecting = true
+                    editMode = .active
                 } else {
                     showPrioritiseOptions = true
                 }
@@ -449,8 +452,8 @@ struct HomeView: View {
     }
 
     private var prioritiseLabel: String {
-        if !selectedItemIDs.isEmpty {
-            let n = selectedItemIDs.count
+        if !itemSelection.isEmpty {
+            let n = itemSelection.count
             return "Prioritise \(n == 1 ? "1 Item" : "\(n) Items")"
         }
         if !selectedListIDs.isEmpty {
@@ -489,28 +492,6 @@ struct HomeView: View {
         } else {
             selectedListIDs.insert(id)
         }
-    }
-
-    private func toggleItemSelect(_ id: String) {
-        if selectedItemIDs.contains(id) {
-            selectedItemIDs.remove(id)
-        } else {
-            selectedItemIDs.insert(id)
-        }
-    }
-
-    private func expandBinding(for id: String) -> Binding<Bool> {
-        Binding(
-            get: { expandedListIDs.contains(id) },
-            set: { expanding in
-                if expanding {
-                    expandedListIDs.insert(id)
-                    loadItemsIfNeeded(for: id)
-                } else {
-                    expandedListIDs.remove(id)
-                }
-            }
-        )
     }
 
     private func loadItemsIfNeeded(for id: String) {

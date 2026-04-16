@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// Settings tab: AI configuration.
+/// Settings tab: AI configuration and apply-sheet defaults.
 struct SettingsView: View {
+
+    @EnvironmentObject private var session: PairwiseSession
 
     @State private var apiKey: String = ""
     @State private var apiKeyMasked = true
@@ -16,6 +18,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 aiSection
+                dueDateDefaultsSection
             }
             .navigationTitle("Settings")
             .onAppear { loadSettings() }
@@ -89,6 +92,41 @@ struct SettingsView: View {
                 .foregroundStyle(.red)
                 .font(.caption)
                 .lineLimit(2)
+        }
+    }
+
+    // MARK: - Due-date Defaults Section
+
+    private var dueDateDefaultsSection: some View {
+        Section {
+            Picker("High priority", selection: Binding(
+                get: { session.defaultHighDueTarget },
+                set: { session.defaultHighDueTarget = $0 }
+            )) {
+                ForEach(DueTarget.allCases.filter { $0 != .custom }, id: \.self) { t in
+                    Text(t.displayName).tag(t)
+                }
+            }
+            Picker("Medium priority", selection: Binding(
+                get: { session.defaultMediumDueTarget },
+                set: { session.defaultMediumDueTarget = $0 }
+            )) {
+                ForEach(DueTarget.allCases.filter { $0 != .custom }, id: \.self) { t in
+                    Text(t.displayName).tag(t)
+                }
+            }
+            Picker("Low priority", selection: Binding(
+                get: { session.defaultLowDueTarget },
+                set: { session.defaultLowDueTarget = $0 }
+            )) {
+                ForEach(DueTarget.allCases.filter { $0 != .custom }, id: \.self) { t in
+                    Text(t.displayName).tag(t)
+                }
+            }
+        } header: {
+            Text("Due-date defaults")
+        } footer: {
+            Text("Default dates used when applying tiered priorities with due dates in the Apply sheet.")
         }
     }
 

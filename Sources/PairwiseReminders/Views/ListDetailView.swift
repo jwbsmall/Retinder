@@ -200,12 +200,34 @@ struct ListDetailView: View {
                 }
             }
             if options.applyDueDates {
-                try remindersManager.applyDueDates(
-                    items,
-                    count: options.dueDateCount,
-                    dueDate: options.resolvedDueDate,
-                    includeTime: options.includeTime
-                )
+                if options.applyPriorities && options.priorityMode == .tiered {
+                    let high   = min(options.highCount,   items.count)
+                    let medium = min(options.mediumCount, items.count - high)
+                    let low    = min(options.lowCount,    items.count - high - medium)
+                    var assignments: [(ReminderItem, Date)] = []
+                    for i in 0..<high {
+                        assignments.append((items[i], options.resolvedDate(for: options.highDueTarget,   custom: options.highCustomDate)))
+                    }
+                    for i in high..<(high + medium) {
+                        assignments.append((items[i], options.resolvedDate(for: options.mediumDueTarget, custom: options.mediumCustomDate)))
+                    }
+                    for i in (high + medium)..<(high + medium + low) {
+                        assignments.append((items[i], options.resolvedDate(for: options.lowDueTarget,    custom: options.lowCustomDate)))
+                    }
+                    try remindersManager.applyTieredDueDates(
+                        assignments,
+                        includeTime: options.includeTime,
+                        addAlarms: options.addAlarms
+                    )
+                } else {
+                    try remindersManager.applyDueDates(
+                        items,
+                        count: options.dueDateCount,
+                        dueDate: options.resolvedDueDate,
+                        includeTime: options.includeTime,
+                        addAlarms: options.addAlarms
+                    )
+                }
             }
             if options.applyFlags {
                 try remindersManager.applyFlags(items, count: options.flagCount)
