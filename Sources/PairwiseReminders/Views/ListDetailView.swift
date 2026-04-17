@@ -206,24 +206,32 @@ struct ListDetailView: View {
                     let low    = min(options.lowCount,    items.count - high - medium)
                     var assignments: [(ReminderItem, Date)] = []
                     for i in 0..<high {
-                        assignments.append((items[i], options.resolvedDate(for: options.highDueTarget,   custom: options.highCustomDate)))
+                        if let d = options.resolvedDate(for: options.highDueTarget, custom: options.highCustomDate) {
+                            assignments.append((items[i], d))
+                        }
                     }
                     for i in high..<(high + medium) {
-                        assignments.append((items[i], options.resolvedDate(for: options.mediumDueTarget, custom: options.mediumCustomDate)))
+                        if let d = options.resolvedDate(for: options.mediumDueTarget, custom: options.mediumCustomDate) {
+                            assignments.append((items[i], d))
+                        }
                     }
                     for i in (high + medium)..<(high + medium + low) {
-                        assignments.append((items[i], options.resolvedDate(for: options.lowDueTarget,    custom: options.lowCustomDate)))
+                        if let d = options.resolvedDate(for: options.lowDueTarget, custom: options.lowCustomDate) {
+                            assignments.append((items[i], d))
+                        }
                     }
-                    try remindersManager.applyTieredDueDates(
-                        assignments,
-                        includeTime: options.includeTime,
-                        addAlarms: options.addAlarms
-                    )
-                } else {
+                    if !assignments.isEmpty {
+                        try remindersManager.applyTieredDueDates(
+                            assignments,
+                            includeTime: options.includeTime,
+                            addAlarms: options.addAlarms
+                        )
+                    }
+                } else if let dueDate = options.resolvedDueDate {
                     try remindersManager.applyDueDates(
                         items,
                         count: options.dueDateCount,
-                        dueDate: options.resolvedDueDate,
+                        dueDate: dueDate,
                         includeTime: options.includeTime,
                         addAlarms: options.addAlarms
                     )

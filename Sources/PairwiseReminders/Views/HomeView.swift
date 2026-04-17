@@ -23,6 +23,20 @@ struct HomeView: View {
         }
     }
 
+    enum SortMode: String, CaseIterable {
+        case priority = "priority"
+        case title    = "title"
+        case dueDate  = "due_date"
+
+        var label: String {
+            switch self {
+            case .priority: return "Priority"
+            case .title:    return "Title"
+            case .dueDate:  return "Due Date"
+            }
+        }
+    }
+
     @EnvironmentObject private var remindersManager: RemindersManager
     @EnvironmentObject private var session: PairwiseSession
     @EnvironmentObject private var eloEngine: EloEngine
@@ -37,8 +51,9 @@ struct HomeView: View {
     @State private var showHistory = false
 
     @State private var expandedListIDs: Set<String> = []
-    @State private var selectedListIDs: Set<String> = []
-    @State private var itemSelection: Set<String> = []  // item IDs bound to List(selection:)
+    // Unified selection — contains calendar IDs (lists) and/or reminder item IDs.
+    // Callers split by checking against remindersManager.lists to distinguish the two.
+    @State private var itemSelection: Set<String> = []
     @State private var editMode: EditMode = .inactive
     @State private var itemsByList: [String: [ReminderItem]] = [:]
     @State private var loadingListIDs: Set<String> = []
@@ -49,6 +64,10 @@ struct HomeView: View {
         GroupingMode(rawValue: UserDefaults.standard.string(forKey: "grouping_mode") ?? "") ?? .byList
     }()
 
+    @State private var sortMode: SortMode = {
+        SortMode(rawValue: UserDefaults.standard.string(forKey: "sort_mode") ?? "") ?? .priority
+    }()
+
     private var allExpanded: Bool {
         !remindersManager.lists.isEmpty &&
         remindersManager.lists.allSatisfy { expandedListIDs.contains($0.calendarIdentifier) }
@@ -57,7 +76,25 @@ struct HomeView: View {
     // MARK: - Cross-list data (flat + date modes)
 
     private var allItems: [ReminderItem] {
-        itemsByList.values.flatMap { $0 }.sorted { $0.eloRating > $1.eloRating }
+        sortItems(itemsByList.values.flatMap { $0 })
+    }
+
+    private func sortItems(_ items: [ReminderItem]) -> [ReminderItem] {
+        switch sortMode {
+        case .priority:
+            return items.sorted { $0.eloRating > $1.eloRating }
+        case .title:
+            return items.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        case .dueDate:
+            return items.sorted {
+                switch ($0.dueDate, $1.dueDate) {
+                case let (a?, b?): return a < b
+                case (_?, nil):   return true
+                case (nil, _?):   return false
+                case (nil, nil):  return $0.eloRating > $1.eloRating
+                }
+            }
+        }
     }
 
     private var globalEloMin: Double { allItems.filter { $0.comparisonCount > 0 }.last?.eloRating ?? 1000 }
@@ -103,8 +140,6 @@ struct HomeView: View {
                     emptyState
                         .frame(maxHeight: .infinity)
                 } else {
-                    groupingPickerBar
-
                     switch groupingMode {
                     case .byList:    listContent.frame(maxHeight: .infinity)
                     case .flat:      flatContent.frame(maxHeight: .infinity)
@@ -123,7 +158,6 @@ struct HomeView: View {
                     if isSelecting {
                         Button("Cancel") {
                             editMode = .inactive
-                            selectedListIDs = []
                             itemSelection = []
                         }
                         .font(.subheadline)
@@ -148,14 +182,30 @@ struct HomeView: View {
                             Button { showHistory = true } label: {
                                 Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
                             }
+                            .accessibilityLabel("Comparison history")
+                            Menu {
+                                Picker("Group By", selection: $groupingMode) {
+                                    ForEach(GroupingMode.allCases, id: \.self) { mode in
+                                        Text(mode.label).tag(mode)
+                                    }
+                                }
+                                Picker("Sort By", selection: $sortMode) {
+                                    ForEach(SortMode.allCases, id: \.self) { mode in
+                                        Text(mode.label).tag(mode)
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                            }
+                            .accessibilityLabel("Group and sort options")
                             Button { showSettings = true } label: {
                                 Image(systemName: "gear")
                             }
+                            .accessibilityLabel("Settings")
                         }
                         Button(isSelecting ? "Done" : "Select") {
                             if editMode == .active {
                                 editMode = .inactive
-                                selectedListIDs = []
                                 itemSelection = []
                             } else {
                                 editMode = .active
@@ -179,11 +229,13 @@ struct HomeView: View {
                     showPrioritiseOptions = false
                     showPrioritise = true
                     editMode = .inactive
-                    if !itemSelection.isEmpty {
-                        // Item-level selection: pass pre-loaded items directly.
-                        let ids = itemSelection
-                        let items = itemsByList.values.flatMap { $0 }.filter { ids.contains($0.id) }
-                        itemSelection = []
+                    // Split unified selection into calendar IDs (lists) vs reminder item IDs.
+                    let listCalendarIDs = Set(remindersManager.lists.map(\.calendarIdentifier))
+                    let selectedItemIDs = itemSelection.filter { !listCalendarIDs.contains($0) }
+                    let selectedListIDs = itemSelection.filter { listCalendarIDs.contains($0) }
+                    itemSelection = []
+                    if !selectedItemIDs.isEmpty {
+                        let items = itemsByList.values.flatMap { $0 }.filter { selectedItemIDs.contains($0.id) }
                         Task {
                             await session.start(
                                 items: items,
@@ -192,9 +244,10 @@ struct HomeView: View {
                             )
                         }
                     } else {
+                        let lists = selectedListIDs
                         Task {
                             await session.start(
-                                listIDs: selectedListIDs,
+                                listIDs: lists,
                                 remindersManager: remindersManager,
                                 eloEngine: eloEngine,
                                 context: modelContext
@@ -202,13 +255,13 @@ struct HomeView: View {
                         }
                     }
                 }
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
             // Bridge: when ListDetailView sets pendingListIDs, pre-select + open options.
             .onChange(of: session.pendingListIDs) { _, ids in
                 guard !ids.isEmpty else { return }
-                selectedListIDs.formUnion(ids)
+                itemSelection.formUnion(ids)
                 session.pendingListIDs = []
                 if !showPrioritise { showPrioritiseOptions = true }
             }
@@ -220,6 +273,9 @@ struct HomeView: View {
                 UserDefaults.standard.set(mode.rawValue, forKey: "grouping_mode")
                 if mode != .byList { loadAllItemsIfNeeded() }
             }
+            .onChange(of: sortMode) { _, mode in
+                UserDefaults.standard.set(mode.rawValue, forKey: "sort_mode")
+            }
             .task { await remindersManager.fetchLists() }
             .refreshable {
                 itemsByList = [:]
@@ -227,20 +283,6 @@ struct HomeView: View {
                 await remindersManager.syncWithEventKit(context: modelContext)
             }
         }
-    }
-
-    // MARK: - Grouping Picker
-
-    private var groupingPickerBar: some View {
-        Picker("Group by", selection: $groupingMode) {
-            ForEach(GroupingMode.allCases, id: \.self) { mode in
-                Text(mode.label).tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 7)
-        .background(Color(.systemGroupedBackground))
     }
 
     // MARK: - List Content (by list)
@@ -252,32 +294,31 @@ struct HomeView: View {
                 let listRecords = records(for: calendar)
 
                 Section {
-                    if expandedListIDs.contains(id) {
+                    DisclosureGroup(isExpanded: disclosureBinding(for: id)) {
                         expandedContent(for: id, calendar: calendar, records: listRecords)
-                    }
-                } header: {
-                    Button {
-                        if expandedListIDs.contains(id) {
-                            expandedListIDs.remove(id)
-                        } else {
-                            expandedListIDs.insert(id)
-                            loadItemsIfNeeded(for: id)
-                        }
                     } label: {
-                        CollapsedListHeader(
-                            calendar: calendar,
-                            records: listRecords,
-                            isSelected: selectedListIDs.contains(id),
-                            isSelecting: isSelecting,
-                            onToggleSelect: { toggleSelect(id) }
-                        )
+                        CollapsedListHeader(calendar: calendar, records: listRecords)
                     }
-                    .buttonStyle(.plain)
+                    .tag(id)
                 }
             }
         }
         .listStyle(.insetGrouped)
         .environment(\.editMode, $editMode)
+    }
+
+    private func disclosureBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { expandedListIDs.contains(id) },
+            set: { isExpanded in
+                if isExpanded {
+                    expandedListIDs.insert(id)
+                    loadItemsIfNeeded(for: id)
+                } else {
+                    expandedListIDs.remove(id)
+                }
+            }
+        )
     }
 
     @ViewBuilder
@@ -292,11 +333,12 @@ struct HomeView: View {
                 .listRowBackground(Color.clear)
         } else {
             let items = itemsByList[id] ?? []
-            let ranked = items.filter { $0.comparisonCount > 0 }
-                              .sorted { $0.eloRating > $1.eloRating }
-            let unranked = items.filter { $0.comparisonCount == 0 }
-            let eloMin = ranked.last?.eloRating ?? 1000
-            let eloMax = ranked.first?.eloRating ?? 1000
+            let eloSorted = items.filter { $0.comparisonCount > 0 }.sorted { $0.eloRating > $1.eloRating }
+            let eloRankByID = Dictionary(uniqueKeysWithValues: eloSorted.enumerated().map { ($1.id, $0 + 1) })
+            let ranked = sortItems(eloSorted)
+            let unranked = sortItems(items.filter { $0.comparisonCount == 0 })
+            let eloMin = eloSorted.last?.eloRating ?? 1000
+            let eloMax = eloSorted.first?.eloRating ?? 1000
 
             if items.isEmpty {
                 Text("No incomplete reminders")
@@ -304,8 +346,8 @@ struct HomeView: View {
                     .foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
             } else {
-                ForEach(Array(ranked.enumerated()), id: \.element.id) { index, item in
-                    ExpandedItemRow(item: item, rank: index + 1, eloMin: eloMin, eloMax: eloMax)
+                ForEach(ranked, id: \.id) { item in
+                    ExpandedItemRow(item: item, rank: eloRankByID[item.id], eloMin: eloMin, eloMax: eloMax)
                         .tag(item.id)
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -424,7 +466,7 @@ struct HomeView: View {
 
     // MARK: - Prioritise Button
 
-    private var hasSelection: Bool { !selectedListIDs.isEmpty || !itemSelection.isEmpty }
+    private var hasSelection: Bool { !itemSelection.isEmpty }
 
     private var prioritiseButton: some View {
         VStack(spacing: 0) {
@@ -452,15 +494,14 @@ struct HomeView: View {
     }
 
     private var prioritiseLabel: String {
-        if !itemSelection.isEmpty {
-            let n = itemSelection.count
-            return "Prioritise \(n == 1 ? "1 Item" : "\(n) Items")"
+        guard !itemSelection.isEmpty else { return "Select to Prioritise" }
+        let listCalendarIDs = Set(remindersManager.lists.map(\.calendarIdentifier))
+        let listCount = itemSelection.filter { listCalendarIDs.contains($0) }.count
+        let itemCount = itemSelection.count - listCount
+        if itemCount > 0 {
+            return "Prioritise \(itemCount == 1 ? "1 Item" : "\(itemCount) Items")"
         }
-        if !selectedListIDs.isEmpty {
-            let n = selectedListIDs.count
-            return "Prioritise \(n == 1 ? "1 List" : "\(n) Lists")"
-        }
-        return "Select to Prioritise"
+        return "Prioritise \(listCount == 1 ? "1 List" : "\(listCount) Lists")"
     }
 
     // MARK: - Empty State
@@ -484,14 +525,6 @@ struct HomeView: View {
 
     private func records(for calendar: EKCalendar) -> [RankedItemRecord] {
         allRecords.filter { $0.listCalendarIdentifier == calendar.calendarIdentifier }
-    }
-
-    private func toggleSelect(_ id: String) {
-        if selectedListIDs.contains(id) {
-            selectedListIDs.remove(id)
-        } else {
-            selectedListIDs.insert(id)
-        }
     }
 
     private func loadItemsIfNeeded(for id: String) {
@@ -535,7 +568,7 @@ private struct PrioritiseFlow: View {
 
 // MARK: - Prioritise Options Sheet
 
-/// Pre-session configuration: compare-by mode and AI/pairwise method.
+/// Pre-session configuration: AI seeding options.
 /// Tapping Start applies settings and triggers the session.
 private struct PrioritiseOptionsSheet: View {
 
@@ -545,28 +578,22 @@ private struct PrioritiseOptionsSheet: View {
     @EnvironmentObject private var session: PairwiseSession
     @Environment(\.dismiss) private var dismiss
 
-    @State private var rankingMode: PairwiseSession.RankingMode
     @State private var useAI: Bool
     @State private var criteria: String
     @State private var topNEnabled: Bool
     @State private var topN: Int
 
-    private static let topNOptions = [5, 10, 15, 20, 30]
-
     init(selectionLabel: String, onStart: @escaping () -> Void) {
         self.selectionLabel = selectionLabel
         self.onStart = onStart
         let defaults = UserDefaults.standard
-        _rankingMode = State(initialValue:
-            PairwiseSession.RankingMode(rawValue: defaults.string(forKey: "ranking_mode") ?? "") ?? .overall
-        )
         _useAI = State(initialValue:
             (defaults.string(forKey: "ai_preference") ?? "") != PairwiseSession.AIPreference.none.rawValue
         )
         _criteria = State(initialValue: defaults.string(forKey: "ai_criteria") ?? "")
         let savedN = defaults.integer(forKey: "ai_top_n")
         _topNEnabled = State(initialValue: savedN > 0)
-        _topN = State(initialValue: savedN > 0 ? savedN : 10)
+        _topN = State(initialValue: savedN > 0 ? savedN : 20)
     }
 
     private var aiAvailabilityNote: String {
@@ -582,20 +609,6 @@ private struct PrioritiseOptionsSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("Compare by", selection: $rankingMode) {
-                        ForEach(PairwiseSession.RankingMode.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                } header: {
-                    Text("Compare by")
-                } footer: {
-                    Text(rankingMode.comparisonQuestion)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section {
                     Toggle("Use AI to pre-rank items", isOn: $useAI)
                     if useAI {
                         VStack(alignment: .leading, spacing: 6) {
@@ -609,11 +622,7 @@ private struct PrioritiseOptionsSheet: View {
 
                         Toggle("Limit to top N items", isOn: $topNEnabled)
                         if topNEnabled {
-                            Picker("Items to compare", selection: $topN) {
-                                ForEach(Self.topNOptions, id: \.self) { n in
-                                    Text("\(n) items").tag(n)
-                                }
-                            }
+                            Stepper("Compare top \(topN) items", value: $topN, in: 2...200)
                         }
                     }
                 } header: {
@@ -639,7 +648,7 @@ private struct PrioritiseOptionsSheet: View {
                     Button {
                         applyAndStart()
                     } label: {
-                        Text("Start Prioritising \(selectionLabel)")
+                        Text("Start — \(selectionLabel)")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 4)
@@ -660,7 +669,6 @@ private struct PrioritiseOptionsSheet: View {
     }
 
     private func applyAndStart() {
-        session.rankingMode = rankingMode
         session.aiCriteria = criteria
         session.aiTopN = (useAI && topNEnabled) ? topN : nil
         if useAI {
@@ -679,9 +687,6 @@ private struct PrioritiseOptionsSheet: View {
 private struct CollapsedListHeader: View {
     let calendar: EKCalendar
     let records: [RankedItemRecord]
-    let isSelected: Bool
-    let isSelecting: Bool
-    let onToggleSelect: () -> Void
 
     private var rankedRecords: [RankedItemRecord] {
         records.filter { $0.comparisonCount > 0 }.sorted { $0.eloRating > $1.eloRating }
@@ -696,22 +701,14 @@ private struct CollapsedListHeader: View {
                 .font(.body.bold())
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-            eloSparkline
-                .fixedSize(horizontal: true, vertical: false)
 
             Spacer()
 
-            // Selection circle — only visible in selection mode (cleaner idle state)
-            if isSelecting {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? .blue : Color(.tertiaryLabel))
-                    .font(.title3)
-                    .animation(.spring(response: 0.25), value: isSelected)
-                    .highPriorityGesture(TapGesture().onEnded { onToggleSelect() })
-                    .transition(.scale.combined(with: .opacity))
-            }
+            eloSparkline
+                .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -738,14 +735,16 @@ private struct CollapsedListHeader: View {
 
 private struct ExpandedItemRow: View {
     let item: ReminderItem
-    /// 1-based rank for items that have been compared; nil for unranked items.
+    /// 1-based Elo rank; nil for unranked items.
     let rank: Int?
     let eloMin: Double
     let eloMax: Double
     /// Show the list name as a subtitle — useful in flat/date grouping modes.
     var showListName: Bool = false
-    var isSelecting: Bool = false
-    var isSelected: Bool = false
+
+    @Environment(\.editMode) private var editMode
+
+    private var isSelecting: Bool { editMode?.wrappedValue == .active }
 
     private var eloStrength: Double {
         guard rank != nil, eloMax > eloMin else { return 0 }
@@ -760,25 +759,22 @@ private struct ExpandedItemRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // In selection mode: checkmark circle. Otherwise: rank badge or plain circle.
-            if isSelecting {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? .blue : Color(.tertiaryLabel))
-                    .font(.title3)
-                    .animation(.spring(response: 0.2), value: isSelected)
-            } else if let r = rank {
-                ZStack {
+            // Hide rank badge in selection mode — SwiftUI draws its own selection circle.
+            if !isSelecting {
+                if let r = rank {
+                    ZStack {
+                        Circle()
+                            .fill(badgeColor(r))
+                            .frame(width: 28, height: 28)
+                        Text("\(r)")
+                            .font(.system(.caption, design: .rounded).bold())
+                            .foregroundStyle(.white)
+                    }
+                } else {
                     Circle()
-                        .fill(badgeColor(r))
-                        .frame(width: 28, height: 28)
-                    Text("\(r)")
-                        .font(.system(.caption, design: .rounded).bold())
-                        .foregroundStyle(.white)
+                        .strokeBorder(Color(.tertiaryLabel), lineWidth: 1.5)
+                        .frame(width: 26, height: 26)
                 }
-            } else {
-                Circle()
-                    .strokeBorder(Color(.tertiaryLabel), lineWidth: 1.5)
-                    .frame(width: 26, height: 26)
             }
 
             VStack(alignment: .leading, spacing: 3) {
