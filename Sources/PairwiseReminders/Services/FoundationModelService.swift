@@ -57,7 +57,12 @@ struct FoundationModelService {
                 try await Task.sleep(for: .seconds(10))
                 throw FoundationModelError.timeout
             }
-            let result = try await group.next()!
+            // Use safe unwrap — if the group was cancelled externally before either task
+            // finished, next() returns nil and we treat it the same as a timeout.
+            guard let result = try await group.next() else {
+                group.cancelAll()
+                throw FoundationModelError.timeout
+            }
             group.cancelAll()
             return result
         }
@@ -71,7 +76,9 @@ struct FoundationModelService {
     ) throws -> [AnthropicService.SeededRank] {
         // Extract the JSON array from the model's response — it may include surrounding text.
         let jsonString: String
-        if let start = text.range(of: "["), let end = text.range(of: "]", options: .backwards) {
+        if let start = text.range(of: "["),
+           let end = text.range(of: "]", options: .backwards),
+           start.lowerBound <= end.lowerBound {
             jsonString = String(text[start.lowerBound...end.upperBound])
         } else {
             throw FoundationModelError.parseError("No JSON array found in model response.")

@@ -153,24 +153,32 @@ struct ResultsView: View {
                     let low    = min(options.lowCount,    items.count - high - medium)
                     var assignments: [(ReminderItem, Date)] = []
                     for i in 0..<high {
-                        assignments.append((items[i], options.resolvedDate(for: options.highDueTarget,   custom: options.highCustomDate)))
+                        if let d = options.resolvedDate(for: options.highDueTarget, custom: options.highCustomDate) {
+                            assignments.append((items[i], d))
+                        }
                     }
                     for i in high..<(high + medium) {
-                        assignments.append((items[i], options.resolvedDate(for: options.mediumDueTarget, custom: options.mediumCustomDate)))
+                        if let d = options.resolvedDate(for: options.mediumDueTarget, custom: options.mediumCustomDate) {
+                            assignments.append((items[i], d))
+                        }
                     }
                     for i in (high + medium)..<(high + medium + low) {
-                        assignments.append((items[i], options.resolvedDate(for: options.lowDueTarget,    custom: options.lowCustomDate)))
+                        if let d = options.resolvedDate(for: options.lowDueTarget, custom: options.lowCustomDate) {
+                            assignments.append((items[i], d))
+                        }
                     }
-                    try remindersManager.applyTieredDueDates(
-                        assignments,
-                        includeTime: options.includeTime,
-                        addAlarms: options.addAlarms
-                    )
-                } else {
+                    if !assignments.isEmpty {
+                        try remindersManager.applyTieredDueDates(
+                            assignments,
+                            includeTime: options.includeTime,
+                            addAlarms: options.addAlarms
+                        )
+                    }
+                } else if let dueDate = options.resolvedDueDate {
                     try remindersManager.applyDueDates(
                         items,
                         count: options.dueDateCount,
-                        dueDate: options.resolvedDueDate,
+                        dueDate: dueDate,
                         includeTime: options.includeTime,
                         addAlarms: options.addAlarms
                     )
@@ -261,6 +269,7 @@ private struct SessionRankedRow: View {
 // MARK: - Due Date Target (top-level for use in ApplyOptions + PairwiseSession defaults)
 
 enum DueTarget: String, CaseIterable {
+    case none     = "none"
     case today    = "today"
     case tomorrow = "tomorrow"
     case nextWeek = "next_week"
@@ -268,6 +277,7 @@ enum DueTarget: String, CaseIterable {
 
     var displayName: String {
         switch self {
+        case .none:     return "None"
         case .today:    return "Today"
         case .tomorrow: return "Tomorrow"
         case .nextWeek: return "Next week"
@@ -316,11 +326,13 @@ struct ApplyOptions {
     /// Calendar identifiers whose items should be skipped during write-back.
     var excludedListIDs: Set<String> = []
 
-    /// Resolves a DueTarget to a concrete Date, sharing the time settings when `includeTime` is on.
-    func resolvedDate(for target: DueTarget, custom: Date) -> Date {
+    /// Resolves a DueTarget to a concrete Date, or nil for `.none`.
+    func resolvedDate(for target: DueTarget, custom: Date) -> Date? {
+        guard target != .none else { return nil }
         let cal = Calendar.current
         let dayStart: Date
         switch target {
+        case .none:     return nil
         case .today:    dayStart = cal.startOfDay(for: .now)
         case .tomorrow: dayStart = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: .now)) ?? .now
         case .nextWeek: dayStart = cal.date(byAdding: .weekOfYear, value: 1, to: cal.startOfDay(for: .now)) ?? .now
@@ -333,7 +345,7 @@ struct ApplyOptions {
                         second: 0, of: dayStart) ?? dayStart
     }
 
-    var resolvedDueDate: Date { resolvedDate(for: dueTarget, custom: customDate) }
+    var resolvedDueDate: Date? { resolvedDate(for: dueTarget, custom: customDate) }
 
     // MARK: Flags
     var applyFlags: Bool = false
@@ -477,6 +489,7 @@ struct ApplySheet: View {
                     tierDuePicker(label: "High",   target: $options.highDueTarget,   custom: $options.highCustomDate)
                     tierDuePicker(label: "Medium", target: $options.mediumDueTarget, custom: $options.mediumCustomDate)
                     tierDuePicker(label: "Low",    target: $options.lowDueTarget,    custom: $options.lowCustomDate)
+                    timeAndAlarmControls
                 } else {
                     Stepper(
                         "Top \(options.dueDateCount) item\(options.dueDateCount == 1 ? "" : "s")",
@@ -493,26 +506,44 @@ struct ApplySheet: View {
                                    in: Date.now...,
                                    displayedComponents: options.includeTime ? [.date, .hourAndMinute] : .date)
                     }
+                    if options.dueTarget != .none {
+                        timeAndAlarmControls
+                    }
                 }
-                Toggle("Set time", isOn: $options.includeTime)
-                if options.includeTime && !useTieredDates && options.dueTarget != .custom {
-                    DatePicker("Time", selection: $options.dueTime,
-                               displayedComponents: .hourAndMinute)
-                }
-                Toggle("Add reminder alert", isOn: $options.addAlarms)
             }
         } header: {
             Text("Due Dates")
         } footer: {
             if options.applyDueDates {
                 if useTieredDates {
-                    Text("Each priority tier receives its own due date. A reminder alert fires at that time for each item.")
-                        .opacity(options.addAlarms ? 1 : 0)
+                    Text("Each priority tier receives its own due date.")
+                } else if options.dueTarget == .none {
+                    Text("No due dates will be set.")
+                        .foregroundStyle(.secondary)
                 } else {
                     let n = options.dueDateCount
                     Text("Sets date\(options.includeTime ? " + time" : "") on the top \(n) item\(n == 1 ? "" : "s").")
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var timeAndAlarmControls: some View {
+        Toggle("Set time", isOn: $options.includeTime)
+            .onChange(of: options.includeTime) { _, hasTime in
+                if !hasTime { options.addAlarms = false }
+            }
+        if options.includeTime && !useTieredDates && options.dueTarget != .custom {
+            DatePicker("Time", selection: $options.dueTime,
+                       displayedComponents: .hourAndMinute)
+        }
+        Toggle("Add reminder alert", isOn: $options.addAlarms)
+            .disabled(!options.includeTime)
+        if !options.includeTime {
+            Text("Set a time above to enable reminder alerts.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 

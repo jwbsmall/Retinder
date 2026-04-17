@@ -80,7 +80,7 @@ struct PairwiseView: View {
         VStack(spacing: 10) {
             HStack {
                 Spacer()
-                Text(session.rankingMode.comparisonQuestion)
+                Text("Which matters more?")
                     .font(.headline)
                 Spacer()
             }
