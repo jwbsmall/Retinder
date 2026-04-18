@@ -55,7 +55,7 @@ struct HomeView: View {
     // Callers split by checking against remindersManager.lists to distinguish the two.
     @State private var itemSelection: Set<String> = []
     @State private var editMode: EditMode = .inactive
-    @State private var showEmptySelectionAlert = false
+    @State private var editingItem: ReminderItem?
     @State private var itemsByList: [String: [ReminderItem]] = [:]
     @State private var loadingListIDs: Set<String> = []
 
@@ -100,6 +100,15 @@ struct HomeView: View {
 
     private var globalEloMin: Double { allItems.filter { $0.comparisonCount > 0 }.last?.eloRating ?? 1000 }
     private var globalEloMax: Double { allItems.filter { $0.comparisonCount > 0 }.first?.eloRating ?? 1000 }
+
+    // Global sparkline scale — uses allRecords (always loaded) so list headers are
+    // comparable across lists even when only some item lists have been expanded/fetched.
+    private var globalSparklineFloor: Double {
+        allRecords.filter { $0.comparisonCount > 0 }.map(\.eloRating).min() ?? 1000
+    }
+    private var globalSparklineCeiling: Double {
+        allRecords.filter { $0.comparisonCount > 0 }.map(\.eloRating).max() ?? 1000
+    }
 
     private struct DateSection: Identifiable {
         let id: String
@@ -234,6 +243,11 @@ struct HomeView: View {
             .sheet(isPresented: $showHistory) {
                 HistoryView()
             }
+            .sheet(item: $editingItem) { item in
+                ReminderEditSheet(item: item)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
             .sheet(isPresented: $showPrioritiseOptions) {
                 PrioritiseOptionsSheet(selectionLabel: prioritiseLabel) {
                     showPrioritiseOptions = false
@@ -286,6 +300,10 @@ struct HomeView: View {
             .onChange(of: sortMode) { _, mode in
                 UserDefaults.standard.set(mode.rawValue, forKey: "sort_mode")
             }
+            // Cascade: selecting a list also selects all reminders within it.
+            .onChange(of: itemSelection) { old, new in
+                cascadeListSelection(old: old, new: new)
+            }
             .task { await remindersManager.fetchLists() }
             .refreshable {
                 itemsByList = [:]
@@ -307,13 +325,19 @@ struct HomeView: View {
                     DisclosureGroup(isExpanded: disclosureBinding(for: id)) {
                         expandedContent(for: id, calendar: calendar, records: listRecords)
                     } label: {
-                        CollapsedListHeader(calendar: calendar, records: listRecords)
+                        CollapsedListHeader(
+                            calendar: calendar,
+                            records: listRecords,
+                            globalMin: globalSparklineFloor,
+                            globalMax: globalSparklineCeiling
+                        )
                     }
                     .tag(id)
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .environment(\.editMode, $editMode)
     }
 
@@ -360,19 +384,15 @@ struct HomeView: View {
                     ExpandedItemRow(item: item, rank: eloRankByID[item.id], eloMin: eloMin, eloMax: eloMax)
                         .tag(item.id)
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            guard editMode == .inactive else { return }
-                            selectedList = calendar
-                        }
+                        .onTapGesture { if editMode == .inactive { editingItem = item } }
+                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
                 }
                 ForEach(unranked, id: \.id) { item in
                     ExpandedItemRow(item: item, rank: nil, eloMin: eloMin, eloMax: eloMax)
                         .tag(item.id)
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            guard editMode == .inactive else { return }
-                            selectedList = calendar
-                        }
+                        .onTapGesture { if editMode == .inactive { editingItem = item } }
+                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
                 }
             }
         }
@@ -397,11 +417,8 @@ struct HomeView: View {
                     )
                     .tag(item.id)
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard editMode == .inactive else { return }
-                        selectedList = remindersManager.lists
-                            .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
-                    }
+                    .onTapGesture { if editMode == .inactive { editingItem = item } }
+                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
                 }
                 ForEach(unranked, id: \.id) { item in
                     ExpandedItemRow(
@@ -411,11 +428,8 @@ struct HomeView: View {
                     )
                     .tag(item.id)
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard editMode == .inactive else { return }
-                        selectedList = remindersManager.lists
-                            .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
-                    }
+                    .onTapGesture { if editMode == .inactive { editingItem = item } }
+                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
                 }
             }
         }
@@ -445,11 +459,8 @@ struct HomeView: View {
                             )
                             .tag(item.id)
                             .contentShape(Rectangle())
-                            .onTapGesture {
-                                guard editMode == .inactive else { return }
-                                selectedList = remindersManager.lists
-                                    .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
-                            }
+                            .onTapGesture { if editMode == .inactive { editingItem = item } }
+                            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
                         }
                         ForEach(unranked, id: \.id) { item in
                             ExpandedItemRow(
@@ -459,17 +470,15 @@ struct HomeView: View {
                             )
                             .tag(item.id)
                             .contentShape(Rectangle())
-                            .onTapGesture {
-                                guard editMode == .inactive else { return }
-                                selectedList = remindersManager.lists
-                                    .first { $0.calendarIdentifier == item.ekReminder.calendar?.calendarIdentifier }
-                            }
+                            .onTapGesture { if editMode == .inactive { editingItem = item } }
+                            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
                         }
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .environment(\.editMode, $editMode)
         .task { loadAllItemsIfNeeded() }
     }
@@ -484,7 +493,7 @@ struct HomeView: View {
                 if hasSelection {
                     showPrioritiseOptions = true
                 } else {
-                    showEmptySelectionAlert = true
+                    editMode = .active
                 }
             } label: {
                 Text(prioritiseLabel)
@@ -496,12 +505,6 @@ struct HomeView: View {
             .tint(hasSelection ? .blue : .secondary)
             .padding(.horizontal)
             .padding(.vertical, 12)
-            .alert("Nothing selected", isPresented: $showEmptySelectionAlert) {
-                Button("Select Items") { editMode = .active }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Tap Select to choose reminders or lists, then tap Prioritise.")
-            }
         }
         .background(.regularMaterial)
     }
@@ -540,8 +543,12 @@ struct HomeView: View {
         allRecords.filter { $0.listCalendarIdentifier == calendar.calendarIdentifier }
     }
 
-    private func loadItemsIfNeeded(for id: String) {
-        guard itemsByList[id] == nil, !loadingListIDs.contains(id) else { return }
+    private func loadItemsIfNeeded(for id: String, cascadeSelection: Bool = false) {
+        if let items = itemsByList[id] {
+            if cascadeSelection { itemSelection.formUnion(items.map(\.id)) }
+            return
+        }
+        guard !loadingListIDs.contains(id) else { return }
         loadingListIDs.insert(id)
         Task {
             let loaded = (try? await remindersManager.fetchIncompleteReminders(
@@ -549,12 +556,33 @@ struct HomeView: View {
             )) ?? []
             itemsByList[id] = loaded
             loadingListIDs.remove(id)
+            // If we were requested to cascade and the list is still selected, union item IDs now.
+            if cascadeSelection && itemSelection.contains(id) {
+                itemSelection.formUnion(loaded.map(\.id))
+            }
         }
     }
 
     private func loadAllItemsIfNeeded() {
         for list in remindersManager.lists {
             loadItemsIfNeeded(for: list.calendarIdentifier)
+        }
+    }
+
+    /// When a list (calendar ID) is added to the selection, auto-select all its reminder items.
+    /// When a list is removed from the selection, deselect all its reminder items.
+    private func cascadeListSelection(old: Set<String>, new: Set<String>) {
+        let listIDs = Set(remindersManager.lists.map(\.calendarIdentifier))
+        let addedLists = new.subtracting(old).intersection(listIDs)
+        let removedLists = old.subtracting(new).intersection(listIDs)
+
+        for id in addedLists {
+            loadItemsIfNeeded(for: id, cascadeSelection: true)
+        }
+        for id in removedLists {
+            if let items = itemsByList[id] {
+                itemSelection.subtract(items.map(\.id))
+            }
         }
     }
 }
@@ -704,9 +732,12 @@ private struct PrioritiseOptionsSheet: View {
 private struct CollapsedListHeader: View {
     let calendar: EKCalendar
     let records: [RankedItemRecord]
+    let globalMin: Double
+    let globalMax: Double
 
     private var rankedRecords: [RankedItemRecord] {
-        records.filter { $0.comparisonCount > 0 }.sorted { $0.eloRating > $1.eloRating }
+        // Ascending sort: lowest Elo first → bars grow left-to-right.
+        records.filter { $0.comparisonCount > 0 }.sorted { $0.eloRating < $1.eloRating }
     }
 
     var body: some View {
@@ -731,13 +762,11 @@ private struct CollapsedListHeader: View {
     @ViewBuilder
     private var eloSparkline: some View {
         if rankedRecords.count >= 2 {
-            let maxR = rankedRecords[0].eloRating
-            let minR = rankedRecords[rankedRecords.count - 1].eloRating
-            let range = max(maxR - minR, 1.0)
+            let range = max(globalMax - globalMin, 1.0)
             let listColor = Color(cgColor: calendar.cgColor)
             HStack(alignment: .bottom, spacing: 2) {
                 ForEach(Array(rankedRecords.prefix(10).enumerated()), id: \.offset) { _, record in
-                    let h = 4.0 + 12.0 * ((record.eloRating - minR) / range)
+                    let h = 4.0 + 12.0 * ((record.eloRating - globalMin) / range)
                     Capsule()
                         .fill(listColor.opacity(0.75))
                         .frame(width: 4, height: h)
