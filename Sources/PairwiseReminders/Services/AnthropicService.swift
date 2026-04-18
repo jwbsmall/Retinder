@@ -39,6 +39,7 @@ struct AnthropicService {
         let id: String
         let rank: Int
         let confidence: Int
+        let reasoning: String?
     }
 
     /// Sends reminder summaries to Claude and returns a full ranked ordering with
@@ -85,11 +86,12 @@ struct AnthropicService {
                         "items": [
                             "type": "object",
                             "properties": [
-                                "id":         ["type": "string", "description": "The item ID exactly as provided"],
+                                "id":         ["type": "string",  "description": "The item ID exactly as provided"],
                                 "rank":       ["type": "integer", "description": "1-based rank (1 = highest priority)"],
-                                "confidence": ["type": "integer", "description": "0–100 confidence in this rank"]
+                                "confidence": ["type": "integer", "description": "0–100 confidence in this rank"],
+                                "reasoning":  ["type": "string",  "description": "One sentence explaining why this item is ranked here"]
                             ],
-                            "required": ["id", "rank", "confidence"]
+                            "required": ["id", "rank", "confidence", "reasoning"]
                         ]
                     ]
                 ],
@@ -230,7 +232,12 @@ struct AnthropicService {
                 let rank = entry["rank"] as? Int,
                 let confidence = entry["confidence"] as? Int
             else { return nil }
-            return SeededRank(id: id, rank: rank, confidence: max(0, min(100, confidence)))
+            return SeededRank(
+                id: id,
+                rank: rank,
+                confidence: max(0, min(100, confidence)),
+                reasoning: entry["reasoning"] as? String
+            )
         }
     }
 

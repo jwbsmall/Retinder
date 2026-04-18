@@ -15,6 +15,12 @@ struct ReminderItem: Identifiable, Equatable, @unchecked Sendable {
     /// Claude's one-line reasoning for why this item matters.
     var aiReasoning: String?
 
+    /// AI-suggested rank (1 = highest) from the most recent seeding pass.
+    var aiSeedRank: Int?
+
+    /// AI confidence in the seed rank, 0–100.
+    var aiConfidence: Int?
+
     /// Position in the final sorted order (0 = highest priority).
     var sortRank: Int?
 

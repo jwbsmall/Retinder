@@ -1,18 +1,20 @@
 import SwiftUI
+import SwiftData
 
-/// Session summary shown after the Elo comparison finishes ("Done for now" or convergence).
-/// Displays the ranked list and lets the user write results back to Reminders,
-/// then returns to idle so the Prioritise tab resets.
+/// Session summary shown after the session finishes.
+/// Displays the ranked list and lets the user write results back to Reminders.
 struct ResultsView: View {
 
     @EnvironmentObject private var session: PairwiseSession
     @EnvironmentObject private var remindersManager: RemindersManager
     @EnvironmentObject private var eloEngine: EloEngine
+    @Environment(\.modelContext) private var modelContext
 
     @State private var showApplySheet = false
     @State private var showHistory = false
     @State private var applyError: String?
     @State private var applied = false
+    @State private var detailItem: ReminderItem?
     @State private var editingItem: ReminderItem?
 
     var body: some View {
@@ -28,12 +30,15 @@ struct ResultsView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showHistory = true
-                } label: {
-                    Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                HStack(spacing: 12) {
+                    EditButton()
+                    Button {
+                        showHistory = true
+                    } label: {
+                        Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                    }
+                    .accessibilityLabel("Comparison history")
                 }
-                .accessibilityLabel("Comparison history")
             }
         }
         .sheet(isPresented: $showHistory) {
@@ -48,6 +53,11 @@ struct ResultsView: View {
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $detailItem) { item in
+            ItemDetailSheet(item: item, onEdit: { editingItem = item })
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .sheet(item: $editingItem) { item in
             ReminderEditSheet(item: item)
@@ -64,12 +74,22 @@ struct ResultsView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(spacing: 6) {
-            if session.seedingFailed && session.aiPreference != .none {
+        VStack(alignment: .leading, spacing: 6) {
+            if session.seedingFailed && session.mode != .pairwise {
                 Label("AI seeding was unavailable — rankings may be less accurate", systemImage: "info.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 8)
+                    .padding(.horizontal)
+            }
+            if !session.aiCriteria.isEmpty, session.mode != .pairwise, !session.seedingFailed {
+                let n = session.rankedItems.count
+                let limitText = session.topN != nil ? "top \(n)" : "all \(n)"
+                Text("Ranked by: \(session.aiCriteria) · \(limitText) item\(n == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
+                    .padding(.top, session.seedingFailed ? 0 : 8)
             }
             if applied {
                 Label("Applied to Reminders!", systemImage: "checkmark.circle.fill")
@@ -94,7 +114,10 @@ struct ResultsView: View {
             ForEach(Array(session.rankedItems.enumerated()), id: \.element.id) { index, item in
                 SessionRankedRow(item: item, rank: index + 1, total: session.rankedItems.count,
                                  minRating: minR, maxRating: maxR)
-                    .onTapGesture { editingItem = item }
+                    .onTapGesture { detailItem = item }
+            }
+            .onMove { from, to in
+                session.reorderRankedItems(from: from, to: to, context: modelContext)
             }
         }
         .listStyle(.insetGrouped)
@@ -236,13 +259,22 @@ private struct SessionRankedRow: View {
 
             Spacer()
 
-            Text(item.priorityLabel(totalCount: total))
-                .font(.caption.bold())
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(priorityColor.opacity(0.15))
-                .foregroundStyle(priorityColor)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(item.priorityLabel(totalCount: total))
+                    .font(.caption.bold())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(priorityColor.opacity(0.15))
+                    .foregroundStyle(priorityColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                if let confidence = item.aiConfidence {
+                    Text("\(confidence)%")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
         }
         .padding(.vertical, 4)
     }
@@ -262,6 +294,80 @@ private struct SessionRankedRow: View {
         case .medium: return .orange
         case .low:    return .yellow
         case .none:   return Color(.secondaryLabel)
+        }
+    }
+}
+
+// MARK: - Item Detail Sheet
+
+private struct ItemDetailSheet: View {
+    let item: ReminderItem
+    let onEdit: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text(item.title)
+                        .font(.title3.bold())
+                        .listRowBackground(Color.clear)
+                }
+
+                if item.aiConfidence != nil || item.aiSeedRank != nil || item.aiReasoning != nil {
+                    Section("AI Assessment") {
+                        if let rank = item.aiSeedRank {
+                            LabeledContent("AI Rank", value: "#\(rank)")
+                        }
+                        if let confidence = item.aiConfidence {
+                            LabeledContent("Confidence") {
+                                HStack(spacing: 8) {
+                                    ProgressView(value: Double(confidence), total: 100)
+                                        .tint(confidence > 66 ? .blue : confidence > 33 ? .indigo : .secondary)
+                                        .frame(width: 60)
+                                    Text("\(confidence)%")
+                                        .font(.subheadline)
+                                        .monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        if let reasoning = item.aiReasoning, !reasoning.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Reasoning")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(reasoning)
+                                    .font(.subheadline)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
+
+                Section("Ranking") {
+                    LabeledContent("Elo Rating", value: String(format: "%.0f", item.eloRating))
+                    LabeledContent("Comparisons", value: "\(item.comparisonCount)")
+                }
+
+                Section {
+                    Button {
+                        dismiss()
+                        onEdit()
+                    } label: {
+                        Label("Edit Reminder…", systemImage: "pencil")
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Item Detail")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
     }
 }
