@@ -20,9 +20,7 @@ struct FoundationModelService {
     /// Throws if no capable model is available, times out, or the model fails to produce parseable output.
     func seedRanking(_ summaries: [AnthropicService.ReminderSummary], criteria: String? = nil) async throws -> [AnthropicService.SeededRank] {
         guard !summaries.isEmpty else { return [] }
-        guard FoundationModelService.isAvailable else {
-            throw FoundationModelError.modelUnavailable
-        }
+        // Note: isAvailable is checked inside the child task so it doesn't block the calling thread.
 
         let numberedList = summaries.enumerated().map { i, s in
             var line = "\(i + 1). [ID: \(s.id)] \(s.title)"
@@ -45,10 +43,14 @@ struct FoundationModelService {
         \(numberedList)
         """
 
-        // Race the model response against a 10-second timeout. LanguageModelSession() is created
-        // inside the task so that model initialisation (which can block) is also covered.
+        // Race the model response against a 10-second timeout.
+        // isAvailable and LanguageModelSession() are both inside the child task so any blocking
+        // during model initialisation is covered by the timeout and runs off the calling thread.
         return try await withThrowingTaskGroup(of: [AnthropicService.SeededRank].self) { group in
             group.addTask {
+                guard SystemLanguageModel.default.isAvailable else {
+                    throw FoundationModelError.modelUnavailable
+                }
                 let modelSession = LanguageModelSession()
                 let response = try await modelSession.respond(to: prompt)
                 return try self.parseResponse(response.content, summaries: summaries)

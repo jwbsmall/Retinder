@@ -247,9 +247,12 @@ final class PairwiseSession: ObservableObject {
         summaries: [AnthropicService.ReminderSummary],
         criteria: String?
     ) async -> [AnthropicService.SeededRank]? {
-        guard FoundationModelService.isAvailable else { return nil }
+        // isAvailable is checked inside FoundationModelService's timeout-protected task,
+        // avoiding a synchronous main-thread call that can block on physical devices.
         do {
             return try await FoundationModelService().seedRanking(summaries, criteria: criteria)
+        } catch FoundationModelService.FoundationModelError.modelUnavailable {
+            return nil
         } catch {
             seedingError = "On-device: \(error.localizedDescription)"
             return nil
