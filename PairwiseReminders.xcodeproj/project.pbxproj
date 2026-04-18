@@ -24,7 +24,6 @@
 		AA000000000000000000003C /* ListConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000003B /* ListConfig.swift */; };
 		AA000000000000000000003E /* EloEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000003D /* EloEngine.swift */; };
 		AA0000000000000000000040 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000003F /* PersistenceController.swift */; };
-		AA0000000000000000000042 /* FoundationModelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000041 /* FoundationModelService.swift */; };
 		AA0000000000000000000044 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000043 /* HomeView.swift */; };
 		AA0000000000000000000046 /* ListDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000045 /* ListDetailView.swift */; };
 		AA0000000000000000000048 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000047 /* SettingsView.swift */; };
@@ -72,7 +71,6 @@
 		AA000000000000000000003B /* ListConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListConfig.swift; sourceTree = "<group>"; };
 		AA000000000000000000003D /* EloEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EloEngine.swift; sourceTree = "<group>"; };
 		AA000000000000000000003F /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
-		AA0000000000000000000041 /* FoundationModelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelService.swift; sourceTree = "<group>"; };
 		AA0000000000000000000043 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		AA0000000000000000000045 /* ListDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListDetailView.swift; sourceTree = "<group>"; };
 		AA0000000000000000000047 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -172,7 +170,6 @@
 				AA000000000000000000001B /* AnthropicService.swift */,
 				AA000000000000000000001C /* KeychainService.swift */,
 				AA000000000000000000003F /* PersistenceController.swift */,
-				AA0000000000000000000041 /* FoundationModelService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -387,7 +384,6 @@
 				AA000000000000000000003C /* ListConfig.swift in Sources */,
 				AA000000000000000000003E /* EloEngine.swift in Sources */,
 				AA0000000000000000000040 /* PersistenceController.swift in Sources */,
-				AA0000000000000000000042 /* FoundationModelService.swift in Sources */,
 				AA0000000000000000000044 /* HomeView.swift in Sources */,
 				AA0000000000000000000046 /* ListDetailView.swift in Sources */,
 				AA0000000000000000000048 /* SettingsView.swift in Sources */,

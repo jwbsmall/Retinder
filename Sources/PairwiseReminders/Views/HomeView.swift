@@ -598,11 +598,9 @@ private struct PrioritiseOptionsSheet: View {
 
     private var aiAvailabilityNote: String {
         let hasKey = (KeychainService.load() ?? "").isEmpty == false
-        let hasOnDevice = FoundationModelService.isAvailable
-        if hasOnDevice && hasKey { return "On-device AI + Anthropic API available." }
-        if hasOnDevice { return "On-device AI available." }
-        if hasKey { return "Anthropic API available." }
-        return "No AI backend configured. Add an API key in Settings."
+        return hasKey
+            ? "Anthropic API available."
+            : "No API key configured. Add one in Settings."
     }
 
     var body: some View {
@@ -671,12 +669,7 @@ private struct PrioritiseOptionsSheet: View {
     private func applyAndStart() {
         session.aiCriteria = criteria
         session.aiTopN = (useAI && topNEnabled) ? topN : nil
-        if useAI {
-            // Always recompute — pick the best available backend.
-            session.aiPreference = FoundationModelService.isAvailable ? .onDeviceFirst : .apiFirst
-        } else {
-            session.aiPreference = .none
-        }
+        session.aiPreference = useAI ? .api : .none
         dismiss()
         onStart()
     }
