@@ -37,6 +37,14 @@ final class PairwiseSession: ObservableObject {
     /// Items sorted by Elo after the session finishes (index 0 = highest priority).
     @Published private(set) var rankedItems: [ReminderItem] = []
 
+    // MARK: - Refinement State
+
+    /// When non-nil, a pairwise refinement is in progress over a subset.
+    /// Holds the full list so `finish()` can splice the refined order back in.
+    private var parentRankedItems: [ReminderItem]?
+    /// Original indices (into `parentRankedItems`) of the items being refined.
+    private var refinementSlots: [Int] = []
+
     // MARK: - Seeding Status
 
     /// True when no AI backend was available or seeding failed — Elo ratings start at default 1000.
@@ -168,9 +176,36 @@ final class PairwiseSession: ObservableObject {
         await continueStart(eloEngine: eloEngine, context: context)
     }
 
+    /// Starts a pairwise refinement over a selected subset of already-ranked items.
+    /// Saves the full ranked list so `finish()` can splice refined positions back in.
+    func startRefinement(items: [ReminderItem], eloEngine: EloEngine) {
+        guard items.count >= 2 else { return }
+        let selectedIDs = Set(items.map(\.id))
+        parentRankedItems = rankedItems
+        refinementSlots = rankedItems.enumerated().compactMap {
+            selectedIDs.contains($0.element.id) ? $0.offset : nil
+        }
+        selectedListIDs = Set(items.compactMap { $0.ekReminder.calendar?.calendarIdentifier })
+        sessionItems = items
+        eloEngine.reset()
+        eloEngine.start(with: items)
+        phase = .comparing
+    }
+
     /// Called by PairwiseView when the user taps "Done for now" or the engine converges.
     func finish(eloEngine: EloEngine, context: ModelContext) {
-        rankedItems = eloEngine.finish(context: context)
+        let refined = eloEngine.finish(context: context)
+        if var parent = parentRankedItems, !refinementSlots.isEmpty {
+            // Splice the refined ordering back into the original positions.
+            for (slotIndex, slot) in refinementSlots.enumerated() where slotIndex < refined.count {
+                parent[slot] = refined[slotIndex]
+            }
+            rankedItems = parent
+            parentRankedItems = nil
+            refinementSlots = []
+        } else {
+            rankedItems = refined
+        }
         phase = .done
     }
 
@@ -200,6 +235,8 @@ final class PairwiseSession: ObservableObject {
         rankedItems = []
         seedingFailed = false
         seedingError = nil
+        parentRankedItems = nil
+        refinementSlots = []
     }
 
     // MARK: - Private
