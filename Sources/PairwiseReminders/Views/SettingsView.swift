@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// Tap-default on reminder rows (Home and Results screens).
+enum TapDefault: String, CaseIterable {
+    case edit, select
+}
+
+/// Tap-default on pairwise cards. Long-press performs the opposite.
+enum PairwiseTapDefault: String, CaseIterable {
+    case choose, edit
+}
+
 /// Settings tab: AI configuration and apply-sheet defaults.
 struct SettingsView: View {
 
@@ -18,10 +28,33 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 aiSection
+                interactionSection
                 dueDateDefaultsSection
             }
             .navigationTitle("Settings")
             .onAppear { loadSettings() }
+        }
+    }
+
+    // MARK: - Interaction Section
+
+    @AppStorage("home_tap_default") private var homeTapDefault: String = TapDefault.edit.rawValue
+    @AppStorage("pairwise_tap_default") private var pairwiseTapDefault: String = PairwiseTapDefault.choose.rawValue
+
+    private var interactionSection: some View {
+        Section {
+            Picker("Tap on a reminder", selection: $homeTapDefault) {
+                Text("Edit / Info").tag(TapDefault.edit.rawValue)
+                Text("Select").tag(TapDefault.select.rawValue)
+            }
+            Picker("Tap on a pairwise card", selection: $pairwiseTapDefault) {
+                Text("Choose").tag(PairwiseTapDefault.choose.rawValue)
+                Text("Edit / Info").tag(PairwiseTapDefault.edit.rawValue)
+            }
+        } header: {
+            Text("Interaction")
+        } footer: {
+            Text("Long-press always performs the opposite action.")
         }
     }
 

@@ -192,6 +192,18 @@ final class PairwiseSession: ObservableObject {
         phase = .comparing
     }
 
+    /// Re-enters the pairwise comparison phase with the current session items.
+    /// Elo ratings carry forward because they live on each item/record.
+    func continueComparing(eloEngine: EloEngine) {
+        let items = rankedItems.isEmpty ? sessionItems : rankedItems
+        guard items.count >= 2 else { return }
+        sessionItems = items
+        rankedItems = []
+        eloEngine.reset()
+        eloEngine.start(with: items)
+        phase = .comparing
+    }
+
     /// Called by PairwiseView when the user taps "Done for now" or the engine converges.
     func finish(eloEngine: EloEngine, context: ModelContext) {
         let refined = eloEngine.finish(context: context)
