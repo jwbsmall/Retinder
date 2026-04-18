@@ -32,6 +32,14 @@ struct FilteringView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .animation(.easeInOut(duration: 0.3), value: statusLine)
+
+                if let error = session.seedingError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 4)
+                }
             }
 
             ProgressView()

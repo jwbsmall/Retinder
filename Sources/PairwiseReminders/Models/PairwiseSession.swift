@@ -248,7 +248,12 @@ final class PairwiseSession: ObservableObject {
         criteria: String?
     ) async -> [AnthropicService.SeededRank]? {
         guard FoundationModelService.isAvailable else { return nil }
-        return try? await FoundationModelService().seedRanking(summaries, criteria: criteria)
+        do {
+            return try await FoundationModelService().seedRanking(summaries, criteria: criteria)
+        } catch {
+            seedingError = "On-device: \(error.localizedDescription)"
+            return nil
+        }
     }
 
     private func tryAPISeeding(
@@ -256,7 +261,12 @@ final class PairwiseSession: ObservableObject {
         criteria: String?
     ) async -> [AnthropicService.SeededRank]? {
         guard let apiKey = KeychainService.load(), !apiKey.isEmpty else { return nil }
-        return try? await AnthropicService(apiKey: apiKey).seedRanking(summaries, criteria: criteria)
+        do {
+            return try await AnthropicService(apiKey: apiKey).seedRanking(summaries, criteria: criteria)
+        } catch {
+            seedingError = "API: \(error.localizedDescription)"
+            return nil
+        }
     }
 
     /// Maps AI seed ranks and confidence scores into initial Elo ratings and K-factors,

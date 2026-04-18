@@ -187,7 +187,7 @@ struct AnthropicService {
     // MARK: - Private Helpers
 
     private func performRequest(body: [String: Any]) async throws -> Data {
-        var request = URLRequest(url: endpoint)
+        var request = URLRequest(url: endpoint, timeoutInterval: 30)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
