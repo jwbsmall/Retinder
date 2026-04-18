@@ -16,6 +16,9 @@ struct ResultsView: View {
     @State private var applied = false
     @State private var detailItem: ReminderItem?
     @State private var editingItem: ReminderItem?
+    @State private var isSelectingForRefinement = false
+    @State private var selectedForRefinement: Set<String> = []
+    @State private var editModeValue: EditMode = .inactive
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,6 +26,7 @@ struct ResultsView: View {
                 .fixedSize(horizontal: false, vertical: true)
             rankedList
                 .frame(maxHeight: .infinity)
+                .environment(\.editMode, $editModeValue)
             bottomBar
         }
         .navigationTitle("Session Results")
@@ -31,13 +35,35 @@ struct ResultsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 12) {
-                    EditButton()
-                    Button {
-                        showHistory = true
-                    } label: {
-                        Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                    if isSelectingForRefinement {
+                        Button("Cancel") {
+                            isSelectingForRefinement = false
+                            selectedForRefinement = []
+                        }
+                    } else {
+                        Button("Select") {
+                            isSelectingForRefinement = true
+                            selectedForRefinement = []
+                            editModeValue = .inactive
+                        }
+                        Button {
+                            if editModeValue == .active {
+                                editModeValue = .inactive
+                            } else {
+                                editModeValue = .active
+                                isSelectingForRefinement = false
+                                selectedForRefinement = []
+                            }
+                        } label: {
+                            Text(editModeValue == .active ? "Done" : "Edit")
+                        }
+                        Button {
+                            showHistory = true
+                        } label: {
+                            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                        }
+                        .accessibilityLabel("Comparison history")
                     }
-                    .accessibilityLabel("Comparison history")
                 }
             }
         }
@@ -125,9 +151,22 @@ struct ResultsView: View {
         let maxR = ratings.max() ?? 1000
         return List {
             ForEach(Array(session.rankedItems.enumerated()), id: \.element.id) { index, item in
+                let isSelected = selectedForRefinement.contains(item.id)
                 SessionRankedRow(item: item, rank: index + 1, total: session.rankedItems.count,
-                                 minRating: minR, maxRating: maxR)
-                    .onTapGesture { detailItem = item }
+                                 minRating: minR, maxRating: maxR,
+                                 isSelecting: isSelectingForRefinement,
+                                 isSelected: isSelected)
+                    .onTapGesture {
+                        if isSelectingForRefinement {
+                            if isSelected {
+                                selectedForRefinement.remove(item.id)
+                            } else {
+                                selectedForRefinement.insert(item.id)
+                            }
+                        } else {
+                            detailItem = item
+                        }
+                    }
             }
             .onMove { from, to in
                 session.reorderRankedItems(from: from, to: to, context: modelContext)
@@ -142,23 +181,52 @@ struct ResultsView: View {
         VStack(spacing: 10) {
             Divider().padding(.bottom, 2)
 
-            Button {
-                showApplySheet = true
-            } label: {
-                Label("Apply to Reminders…", systemImage: "square.and.arrow.down")
+            if isSelectingForRefinement {
+                let count = selectedForRefinement.count
+                Button {
+                    let items = session.rankedItems.filter { selectedForRefinement.contains($0.id) }
+                    isSelectingForRefinement = false
+                    selectedForRefinement = []
+                    session.startRefinement(items: items, eloEngine: eloEngine)
+                } label: {
+                    Label(
+                        count >= 2 ? "Refine \(count) items with Pairwise →" : "Select at least 2 items",
+                        systemImage: "arrow.left.arrow.right"
+                    )
                     .font(.headline)
                     .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .padding(.horizontal)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(count < 2)
+                .padding(.horizontal)
 
-            Button("Done") {
-                session.reset(eloEngine: eloEngine)
+                Button("Cancel") {
+                    isSelectingForRefinement = false
+                    selectedForRefinement = []
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 32)
+            } else {
+                Button {
+                    showApplySheet = true
+                } label: {
+                    Label("Apply to Reminders…", systemImage: "square.and.arrow.down")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding(.horizontal)
+
+                Button("Done") {
+                    session.reset(eloEngine: eloEngine)
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 32)
             }
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .padding(.bottom, 32)
         }
     }
 
@@ -238,6 +306,8 @@ private struct SessionRankedRow: View {
     let total: Int
     let minRating: Double
     let maxRating: Double
+    var isSelecting: Bool = false
+    var isSelected: Bool = false
 
     var strength: Double {
         maxRating > minRating ? (item.eloRating - minRating) / (maxRating - minRating) : 0.5
@@ -249,13 +319,20 @@ private struct SessionRankedRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(badgeColor)
-                    .frame(width: 38, height: 38)
-                Text("\(rank)")
-                    .font(.system(.body, design: .rounded).bold())
-                    .foregroundStyle(.white)
+            if isSelecting {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? .blue : Color(.tertiaryLabel))
+                    .frame(width: 28)
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(badgeColor)
+                        .frame(width: 38, height: 38)
+                    Text("\(rank)")
+                        .font(.system(.body, design: .rounded).bold())
+                        .foregroundStyle(.white)
+                }
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -265,31 +342,36 @@ private struct SessionRankedRow: View {
                 Text(item.listName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                ProgressView(value: strength)
-                    .tint(strengthColor)
-                    .frame(width: 80)
+                if !isSelecting {
+                    ProgressView(value: strength)
+                        .tint(strengthColor)
+                        .frame(width: 80)
+                }
             }
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(item.priorityLabel(totalCount: total))
-                    .font(.caption.bold())
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(priorityColor.opacity(0.15))
-                    .foregroundStyle(priorityColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            if !isSelecting {
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(item.priorityLabel(totalCount: total))
+                        .font(.caption.bold())
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(priorityColor.opacity(0.15))
+                        .foregroundStyle(priorityColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                // Fixed-height slot keeps row heights uniform whether or not confidence is present.
-                Text(item.aiConfidence.map { "\($0)%" } ?? "")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .frame(height: 14)
+                    if let confidence = item.aiConfidence {
+                        Text("\(confidence)%")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
             }
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     private var badgeColor: Color {
