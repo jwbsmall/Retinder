@@ -58,7 +58,7 @@ struct FilteringView: View {
     private func updateStatus(count: Int) {
         if count == 0 {
             statusLine = "Fetching reminders…"
-        } else if session.aiPreference == .none {
+        } else if session.mode == .pairwise {
             statusLine = "Preparing \(count) item\(count == 1 ? "" : "s")…"
         } else {
             statusLine = "AI is ranking \(count) item\(count == 1 ? "" : "s")…"

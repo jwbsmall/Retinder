@@ -81,12 +81,16 @@ final class RemindersManager: ObservableObject {
 
         return reminders.map { reminder in
             let record = recordsByID[reminder.calendarItemIdentifier]
-            return ReminderItem(
+            var item = ReminderItem(
                 from: reminder,
                 eloRating: record?.eloRating ?? 1000.0,
                 kFactor: record?.kFactor ?? 32.0,
                 comparisonCount: record?.comparisonCount ?? 0
             )
+            item.aiSeedRank  = record?.aiSeedRank
+            item.aiConfidence = record?.aiConfidence
+            item.aiReasoning  = record?.aiReasoning
+            return item
         }
     }
 

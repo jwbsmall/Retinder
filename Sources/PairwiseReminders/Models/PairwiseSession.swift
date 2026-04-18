@@ -5,10 +5,9 @@ import SwiftData
 /// Session-level state for a single pairwise ranking run on one or more lists.
 ///
 /// Lifecycle:
-///   idle → seeding → comparing → done
+///   idle → seeding → (comparing →)? done
 ///
-/// `PrioritiseTab` observes this object to navigate between
-/// FilteringView → PairwiseView → ResultsView (session summary).
+/// For `.aiOnly` mode the comparing phase is skipped entirely.
 @MainActor
 final class PairwiseSession: ObservableObject {
 
@@ -44,20 +43,29 @@ final class PairwiseSession: ObservableObject {
     @Published private(set) var seedingFailed: Bool = false
     @Published var seedingError: String?
 
-    // MARK: - AI Preference
+    // MARK: - Mode
 
-    /// Which AI backend to prefer for seeding. Persisted via UserDefaults.
-    enum AIPreference: String, CaseIterable {
-        case api = "api"
-        case none = "none"
+    /// Session mode. Persisted via UserDefaults.
+    enum Mode: String, CaseIterable {
+        case aiOnly   = "ai_only"
+        case pairwise = "pairwise"
+        case both     = "both"
+
+        var displayName: String {
+            switch self {
+            case .aiOnly:   return "AI Only"
+            case .pairwise: return "Pairwise"
+            case .both:     return "Both"
+            }
+        }
     }
 
-    var aiPreference: AIPreference {
+    var mode: Mode {
         get {
-            AIPreference(rawValue: UserDefaults.standard.string(forKey: "ai_preference") ?? "") ?? .api
+            Mode(rawValue: UserDefaults.standard.string(forKey: "session_mode") ?? "") ?? .both
         }
         set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: "ai_preference")
+            UserDefaults.standard.set(newValue.rawValue, forKey: "session_mode")
         }
     }
 
@@ -67,8 +75,10 @@ final class PairwiseSession: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "ai_criteria") }
     }
 
-    /// Limit comparisons to the top N AI-ranked items. Nil = no limit (all items).
-    var aiTopN: Int? {
+    /// Limit items to the top N. For AI modes, filtered by seed rank. For pairwise-only,
+    /// filtered by existing Elo (highest Elo = most prior evidence of importance).
+    /// Nil = no limit.
+    var topN: Int? {
         get {
             let v = UserDefaults.standard.integer(forKey: "ai_top_n")
             return v > 0 ? v : nil
@@ -101,8 +111,8 @@ final class PairwiseSession: ObservableObject {
 
     // MARK: - Starting a Session
 
-    /// Begins a session for the given lists. Fetches items, runs AI seeding, then
-    /// transitions to `.comparing`.
+    /// Begins a session for the given lists. Fetches items, runs AI seeding (unless pairwise-only),
+    /// then transitions to `.comparing` or `.done` depending on the mode.
     func start(
         listIDs: Set<String>,
         remindersManager: RemindersManager,
@@ -132,18 +142,7 @@ final class PairwiseSession: ObservableObject {
             return
         }
 
-        // 2. Attempt AI seeding to set initial Elo ratings.
-        await runSeeding(context: context)
-
-        // Guard: if the task was cancelled (e.g. user dismissed) while seeding, bail out cleanly.
-        guard !Task.isCancelled else {
-            phase = .idle
-            return
-        }
-
-        // 3. Start the Elo engine with (possibly seeded) items.
-        eloEngine.start(with: sessionItems)
-        phase = .comparing
+        await continueStart(eloEngine: eloEngine, context: context)
     }
 
     /// Begins a session for a specific pre-loaded set of items (individual selection path).
@@ -166,21 +165,30 @@ final class PairwiseSession: ObservableObject {
             return
         }
 
-        await runSeeding(context: context)
-
-        guard !Task.isCancelled else {
-            phase = .idle
-            return
-        }
-
-        eloEngine.start(with: sessionItems)
-        phase = .comparing
+        await continueStart(eloEngine: eloEngine, context: context)
     }
 
     /// Called by PairwiseView when the user taps "Done for now" or the engine converges.
     func finish(eloEngine: EloEngine, context: ModelContext) {
         rankedItems = eloEngine.finish(context: context)
         phase = .done
+    }
+
+    /// Reorders `rankedItems` in response to a user drag, updating persistent Elo ratings.
+    func reorderRankedItems(from source: IndexSet, to destination: Int, context: ModelContext) {
+        rankedItems.move(fromOffsets: source, toOffset: destination)
+
+        let allRecords = (try? context.fetch(FetchDescriptor<RankedItemRecord>())) ?? []
+        let recordsByID = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.calendarItemIdentifier, $0) })
+
+        let spread = 20.0
+        let top = (rankedItems.first?.eloRating ?? 1000.0) + spread * Double(rankedItems.count)
+        for (i, item) in rankedItems.enumerated() {
+            let newRating = top - spread * Double(i)
+            rankedItems[i].eloRating = newRating
+            recordsByID[item.id]?.eloRating = newRating
+        }
+        try? context.save()
     }
 
     /// Resets all session state back to idle.
@@ -194,7 +202,38 @@ final class PairwiseSession: ObservableObject {
         seedingError = nil
     }
 
-    // MARK: - Private Seeding
+    // MARK: - Private
+
+    private func continueStart(eloEngine: EloEngine, context: ModelContext) async {
+        // For pairwise-only: apply top-N by prior Elo before starting.
+        if mode == .pairwise, let n = topN, n > 0, sessionItems.count > n {
+            sessionItems = Array(
+                sessionItems
+                    .sorted { $0.eloRating != $1.eloRating ? $0.eloRating > $1.eloRating : $0.title < $1.title }
+                    .prefix(n)
+            )
+        }
+
+        // Run AI seeding unless this is pairwise-only.
+        if mode != .pairwise {
+            await runSeeding(context: context)
+        }
+
+        guard !Task.isCancelled else {
+            phase = .idle
+            return
+        }
+
+        switch mode {
+        case .aiOnly:
+            // Skip pairwise — rank directly by seeded Elo.
+            rankedItems = sessionItems.sorted { $0.eloRating > $1.eloRating }
+            phase = .done
+        case .pairwise, .both:
+            eloEngine.start(with: sessionItems)
+            phase = .comparing
+        }
+    }
 
     private func runSeeding(context: ModelContext) async {
         let summaries = sessionItems.map { item in
@@ -207,14 +246,7 @@ final class PairwiseSession: ObservableObject {
         }
 
         let criteria = aiCriteria.isEmpty ? nil : aiCriteria
-        var seeds: [AnthropicService.SeededRank]?
-
-        switch aiPreference {
-        case .api:
-            seeds = await tryAPISeeding(summaries: summaries, criteria: criteria)
-        case .none:
-            break
-        }
+        let seeds = await tryAPISeeding(summaries: summaries, criteria: criteria)
 
         guard let seeds, !seeds.isEmpty else {
             seedingFailed = true
@@ -224,7 +256,7 @@ final class PairwiseSession: ObservableObject {
         applySeedRatings(seeds, context: context)
 
         // Truncate to top N if configured — only keep the highest-ranked items.
-        if let n = aiTopN, n > 0, sessionItems.count > n {
+        if let n = topN, n > 0, sessionItems.count > n {
             let topIDs = Set(seeds.sorted { $0.rank < $1.rank }.prefix(n).map(\.id))
             sessionItems = sessionItems.filter { topIDs.contains($0.id) }
         }
@@ -263,14 +295,18 @@ final class PairwiseSession: ObservableObject {
             // Lower confidence → higher K → easier for user to move this item.
             let k = max(8.0, 32.0 * (1.0 - Double(seed.confidence) / 100.0))
 
-            sessionItems[i].eloRating = elo
-            sessionItems[i].kFactor = k
+            sessionItems[i].eloRating   = elo
+            sessionItems[i].kFactor     = k
+            sessionItems[i].aiSeedRank  = seed.rank
+            sessionItems[i].aiConfidence = seed.confidence
+            sessionItems[i].aiReasoning = seed.reasoning
 
             if let record = recordByID[item.id] {
-                record.eloRating = elo
-                record.kFactor = k
-                record.aiSeedRank = seed.rank
+                record.eloRating   = elo
+                record.kFactor     = k
+                record.aiSeedRank  = seed.rank
                 record.aiConfidence = seed.confidence
+                record.aiReasoning  = seed.reasoning
             }
         }
         try? context.save()

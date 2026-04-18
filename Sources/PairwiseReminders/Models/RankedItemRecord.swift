@@ -32,6 +32,9 @@ import SwiftData
     /// human comparison. Nil if no AI seeding has been performed.
     var aiConfidence: Int?
 
+    /// One-line reasoning from the AI explaining this item's rank.
+    var aiReasoning: String?
+
     init(
         calendarItemIdentifier: String,
         listCalendarIdentifier: String,

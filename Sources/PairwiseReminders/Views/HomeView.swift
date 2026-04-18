@@ -568,8 +568,7 @@ private struct PrioritiseFlow: View {
 
 // MARK: - Prioritise Options Sheet
 
-/// Pre-session configuration: AI seeding options.
-/// Tapping Start applies settings and triggers the session.
+/// Pre-session configuration: mode, AI criteria, and top-N limit.
 private struct PrioritiseOptionsSheet: View {
 
     let selectionLabel: String
@@ -578,7 +577,7 @@ private struct PrioritiseOptionsSheet: View {
     @EnvironmentObject private var session: PairwiseSession
     @Environment(\.dismiss) private var dismiss
 
-    @State private var useAI: Bool
+    @State private var mode: PairwiseSession.Mode
     @State private var criteria: String
     @State private var topNEnabled: Bool
     @State private var topN: Int
@@ -587,8 +586,8 @@ private struct PrioritiseOptionsSheet: View {
         self.selectionLabel = selectionLabel
         self.onStart = onStart
         let defaults = UserDefaults.standard
-        _useAI = State(initialValue:
-            (defaults.string(forKey: "ai_preference") ?? "") != PairwiseSession.AIPreference.none.rawValue
+        _mode = State(initialValue:
+            PairwiseSession.Mode(rawValue: defaults.string(forKey: "session_mode") ?? "") ?? .both
         )
         _criteria = State(initialValue: defaults.string(forKey: "ai_criteria") ?? "")
         let savedN = defaults.integer(forKey: "ai_top_n")
@@ -596,57 +595,69 @@ private struct PrioritiseOptionsSheet: View {
         _topN = State(initialValue: savedN > 0 ? savedN : 20)
     }
 
-    private var aiAvailabilityNote: String {
-        let hasKey = (KeychainService.load() ?? "").isEmpty == false
-        return hasKey
-            ? "Anthropic API available."
-            : "No API key configured. Add one in Settings."
+    private var hasAPIKey: Bool { (KeychainService.load() ?? "").isEmpty == false }
+
+    private var startLabel: String {
+        switch mode {
+        case .aiOnly:   return "Rank — \(selectionLabel)"
+        case .pairwise: return "Compare — \(selectionLabel)"
+        case .both:     return "Rank & Compare — \(selectionLabel)"
+        }
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Toggle("Use AI to pre-rank items", isOn: $useAI)
-                    if useAI {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Prioritise criteria")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                            TextField("e.g. work tasks, deadlines this week", text: $criteria)
-                                .textFieldStyle(.plain)
-                        }
-                        .padding(.vertical, 2)
-
-                        Toggle("Limit to top N items", isOn: $topNEnabled)
-                        if topNEnabled {
-                            Stepper("Compare top \(topN) items", value: $topN, in: 2...200)
-                        }
+                Section("Mode") {
+                    Picker("Mode", selection: $mode) {
+                        Text("AI Only").tag(PairwiseSession.Mode.aiOnly)
+                        Text("Pairwise").tag(PairwiseSession.Mode.pairwise)
+                        Text("Both").tag(PairwiseSession.Mode.both)
                     }
-                } header: {
-                    Text("AI seeding")
-                } footer: {
-                    if useAI {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(aiAvailabilityNote)
-                            if topNEnabled {
-                                Text("AI will rank all items but only the top \(topN) will be compared.")
-                            } else {
-                                Text("AI will estimate an initial ranking before you start comparing pairs.")
-                            }
-                        }
-                        .foregroundStyle(.secondary)
-                    } else {
-                        Text("Items start with equal ratings. No AI is used.")
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                }
+
+                if mode != .pairwise {
+                    Section {
+                        TextField("e.g. work tasks, deadlines this week", text: $criteria)
+                    } header: {
+                        Text("Criteria")
+                    } footer: {
+                        Text(hasAPIKey
+                            ? "AI will rank all items against these criteria."
+                            : "No API key. Add one in Settings → AI.")
                             .foregroundStyle(.secondary)
                     }
+                }
+
+                Section {
+                    Toggle("Limit items", isOn: $topNEnabled)
+                    if topNEnabled {
+                        Stepper("Top \(topN) items", value: $topN, in: 1...500)
+                    }
+                } header: {
+                    Text("Items")
+                } footer: {
+                    Group {
+                        if topNEnabled {
+                            switch mode {
+                            case .aiOnly:   Text("AI ranks all items but only the top \(topN) appear in results.")
+                            case .pairwise: Text("Top \(topN) items by prior Elo rating are compared.")
+                            case .both:     Text("AI ranks all items; only the top \(topN) are compared.")
+                            }
+                        } else {
+                            Text("All items are included.")
+                        }
+                    }
+                    .foregroundStyle(.secondary)
                 }
 
                 Section {
                     Button {
                         applyAndStart()
                     } label: {
-                        Text("Start — \(selectionLabel)")
+                        Text(startLabel)
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 4)
@@ -668,8 +679,8 @@ private struct PrioritiseOptionsSheet: View {
 
     private func applyAndStart() {
         session.aiCriteria = criteria
-        session.aiTopN = (useAI && topNEnabled) ? topN : nil
-        session.aiPreference = useAI ? .api : .none
+        session.topN = topNEnabled ? topN : nil
+        session.mode = mode
         dismiss()
         onStart()
     }

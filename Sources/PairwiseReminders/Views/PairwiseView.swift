@@ -106,7 +106,7 @@ struct PairwiseView: View {
             .tint(.blue)
             .padding(.horizontal)
 
-            if session.seedingFailed && session.aiPreference != .none {
+            if session.seedingFailed && session.mode != .pairwise {
                 Text("AI seeding unavailable — using default ratings")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
