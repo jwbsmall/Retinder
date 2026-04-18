@@ -24,8 +24,6 @@ struct FoundationModelService {
             throw FoundationModelError.modelUnavailable
         }
 
-        let modelSession = LanguageModelSession()
-
         let numberedList = summaries.enumerated().map { i, s in
             var line = "\(i + 1). [ID: \(s.id)] \(s.title)"
             if let notes = s.notes, !notes.isEmpty { line += " — \(notes)" }
@@ -47,9 +45,11 @@ struct FoundationModelService {
         \(numberedList)
         """
 
-        // Race the model response against a 10-second timeout to avoid hanging the seeding phase.
+        // Race the model response against a 10-second timeout. LanguageModelSession() is created
+        // inside the task so that model initialisation (which can block) is also covered.
         return try await withThrowingTaskGroup(of: [AnthropicService.SeededRank].self) { group in
             group.addTask {
+                let modelSession = LanguageModelSession()
                 let response = try await modelSession.respond(to: prompt)
                 return try self.parseResponse(response.content, summaries: summaries)
             }
