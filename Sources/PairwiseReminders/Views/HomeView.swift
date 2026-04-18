@@ -55,6 +55,7 @@ struct HomeView: View {
     // Callers split by checking against remindersManager.lists to distinguish the two.
     @State private var itemSelection: Set<String> = []
     @State private var editMode: EditMode = .inactive
+    @State private var showEmptySelectionAlert = false
     @State private var itemsByList: [String: [ReminderItem]] = [:]
     @State private var loadingListIDs: Set<String> = []
 
@@ -175,34 +176,43 @@ struct HomeView: View {
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 16) {
-                        if isSelecting {
-                            EmptyView()
-                        } else {
-                            Button { showHistory = true } label: {
-                                Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
-                            }
-                            .accessibilityLabel("Comparison history")
+                    HStack(spacing: 12) {
+                        // History stays visible in all modes.
+                        Button { showHistory = true } label: {
+                            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                        }
+                        .accessibilityLabel("Comparison history")
+
+                        if !isSelecting {
+                            // Group By and Sort By as independent menus (Files-app style).
                             Menu {
                                 Picker("Group By", selection: $groupingMode) {
                                     ForEach(GroupingMode.allCases, id: \.self) { mode in
                                         Text(mode.label).tag(mode)
                                     }
                                 }
+                            } label: {
+                                Image(systemName: "square.grid.2x2")
+                            }
+                            .accessibilityLabel("Group by")
+
+                            Menu {
                                 Picker("Sort By", selection: $sortMode) {
                                     ForEach(SortMode.allCases, id: \.self) { mode in
                                         Text(mode.label).tag(mode)
                                     }
                                 }
                             } label: {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Image(systemName: "arrow.up.arrow.down.circle")
                             }
-                            .accessibilityLabel("Group and sort options")
+                            .accessibilityLabel("Sort by")
+
                             Button { showSettings = true } label: {
                                 Image(systemName: "gear")
                             }
                             .accessibilityLabel("Settings")
                         }
+
                         Button(isSelecting ? "Done" : "Select") {
                             if editMode == .active {
                                 editMode = .inactive
@@ -471,30 +481,33 @@ struct HomeView: View {
     private var prioritiseButton: some View {
         VStack(spacing: 0) {
             Button {
-                if !hasSelection {
-                    // Shortcut: tapping the button starts selection mode
-                    editMode = .active
-                } else {
+                if hasSelection {
                     showPrioritiseOptions = true
+                } else {
+                    showEmptySelectionAlert = true
                 }
             } label: {
                 Text(prioritiseLabel)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(hasSelection ? Color.blue : Color(.systemGray4))
-                    .foregroundStyle(hasSelection ? .white : Color.secondary)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(hasSelection ? .blue : .secondary)
             .padding(.horizontal)
             .padding(.vertical, 12)
+            .alert("Nothing selected", isPresented: $showEmptySelectionAlert) {
+                Button("Select Items") { editMode = .active }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Tap Select to choose reminders or lists, then tap Prioritise.")
+            }
         }
         .background(.regularMaterial)
     }
 
     private var prioritiseLabel: String {
-        guard !itemSelection.isEmpty else { return "Select to Prioritise" }
+        guard !itemSelection.isEmpty else { return "Prioritise…" }
         let listCalendarIDs = Set(remindersManager.lists.map(\.calendarIdentifier))
         let listCount = itemSelection.filter { listCalendarIDs.contains($0) }.count
         let itemCount = itemSelection.count - listCount
