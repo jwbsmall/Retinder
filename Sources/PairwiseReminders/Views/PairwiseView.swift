@@ -169,14 +169,30 @@ struct PairwiseView: View {
                 .padding(.horizontal)
                 .simultaneousGesture(LongPressGesture().onEnded { _ in editingItem = bottomItem })
 
-            // Secondary action
+            // Swipe direction hints — always visible so the gesture is discoverable
+            HStack {
+                Label("Top card", systemImage: "arrow.left")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Label("This one", systemImage: "arrow.right")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 8)
+
+            // Secondary action — glassy pill button
             Button { engine.equal() } label: {
                 Text("About equal")
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 11)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
             }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-            .tint(.secondary)
-            .padding(.top, 12)
+            .buttonStyle(.plain)
+            .padding(.top, 8)
 
             Spacer(minLength: 20)
         }
