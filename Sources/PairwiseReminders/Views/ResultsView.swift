@@ -100,14 +100,26 @@ struct ResultsView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Seeding failure banner — orange with specific error when available.
             if session.seedingFailed && session.mode != .pairwise {
-                Label("AI seeding was unavailable — rankings may be less accurate", systemImage: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 8)
-                    .padding(.horizontal)
+                if let errorMessage = session.seedingError {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                } else {
+                    Label("AI seeding was unavailable — rankings may be less accurate", systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                }
             }
+            // Criteria recap — only when seeding succeeded.
             if !session.aiCriteria.isEmpty, session.mode != .pairwise, !session.seedingFailed {
                 let n = session.rankedItems.count
                 let limitText = session.topN != nil ? "top \(n)" : "all \(n)"
@@ -115,7 +127,8 @@ struct ResultsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal)
-                    .padding(.top, session.seedingFailed ? 0 : 8)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
             }
             if applied {
                 Label("Applied to Reminders!", systemImage: "checkmark.circle.fill")
