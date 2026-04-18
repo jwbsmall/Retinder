@@ -48,22 +48,13 @@ final class PairwiseSession: ObservableObject {
 
     /// Which AI backend to prefer for seeding. Persisted via UserDefaults.
     enum AIPreference: String, CaseIterable {
-        case onDeviceFirst = "on_device_first"
-        case apiFirst = "api_first"
+        case api = "api"
         case none = "none"
-
-        var displayName: String {
-            switch self {
-            case .onDeviceFirst: return "On-device first"
-            case .apiFirst: return "Anthropic API first"
-            case .none: return "No AI seeding"
-            }
-        }
     }
 
     var aiPreference: AIPreference {
         get {
-            AIPreference(rawValue: UserDefaults.standard.string(forKey: "ai_preference") ?? "") ?? .onDeviceFirst
+            AIPreference(rawValue: UserDefaults.standard.string(forKey: "ai_preference") ?? "") ?? .api
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: "ai_preference")
@@ -219,12 +210,8 @@ final class PairwiseSession: ObservableObject {
         var seeds: [AnthropicService.SeededRank]?
 
         switch aiPreference {
-        case .onDeviceFirst:
-            seeds = await tryOnDeviceSeeding(summaries: summaries, criteria: criteria)
-            if seeds == nil { seeds = await tryAPISeeding(summaries: summaries, criteria: criteria) }
-        case .apiFirst:
+        case .api:
             seeds = await tryAPISeeding(summaries: summaries, criteria: criteria)
-            if seeds == nil { seeds = await tryOnDeviceSeeding(summaries: summaries, criteria: criteria) }
         case .none:
             break
         }
@@ -240,22 +227,6 @@ final class PairwiseSession: ObservableObject {
         if let n = aiTopN, n > 0, sessionItems.count > n {
             let topIDs = Set(seeds.sorted { $0.rank < $1.rank }.prefix(n).map(\.id))
             sessionItems = sessionItems.filter { topIDs.contains($0.id) }
-        }
-    }
-
-    private func tryOnDeviceSeeding(
-        summaries: [AnthropicService.ReminderSummary],
-        criteria: String?
-    ) async -> [AnthropicService.SeededRank]? {
-        // isAvailable is checked inside FoundationModelService's timeout-protected task,
-        // avoiding a synchronous main-thread call that can block on physical devices.
-        do {
-            return try await FoundationModelService().seedRanking(summaries, criteria: criteria)
-        } catch FoundationModelService.FoundationModelError.modelUnavailable {
-            return nil
-        } catch {
-            seedingError = "On-device: \(error.localizedDescription)"
-            return nil
         }
     }
 
