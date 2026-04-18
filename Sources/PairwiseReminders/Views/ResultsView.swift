@@ -20,6 +20,9 @@ struct ResultsView: View {
     @State private var selectedForRefinement: Set<String> = []
     @State private var editModeValue: EditMode = .inactive
 
+    @AppStorage("home_tap_default") private var homeTapDefaultRaw: String = TapDefault.edit.rawValue
+    private var homeTapDefault: TapDefault { TapDefault(rawValue: homeTapDefaultRaw) ?? .edit }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -27,12 +30,23 @@ struct ResultsView: View {
             rankedList
                 .frame(maxHeight: .infinity)
                 .environment(\.editMode, $editModeValue)
-            bottomBar
         }
+        .safeAreaInset(edge: .bottom) { bottomBar }
         .navigationTitle("Session Results")
         .navigationBarTitleDisplayMode(.large)
         .navigationBarBackButtonHidden(true)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    // Return to pairwise comparison with current session items.
+                    session.continueComparing(eloEngine: eloEngine)
+                } label: {
+                    Label("Back to Compare", systemImage: "arrow.uturn.backward")
+                }
+                .accessibilityLabel("Continue comparing")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 12) {
                     if isSelectingForRefinement {
@@ -156,17 +170,12 @@ struct ResultsView: View {
                                  minRating: minR, maxRating: maxR,
                                  isSelecting: isSelectingForRefinement,
                                  isSelected: isSelected)
-                    .onTapGesture {
-                        if isSelectingForRefinement {
-                            if isSelected {
-                                selectedForRefinement.remove(item.id)
-                            } else {
-                                selectedForRefinement.insert(item.id)
-                            }
-                        } else {
-                            detailItem = item
+                    .onTapGesture { handlePrimaryTap(for: item) }
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                            handleSecondaryTap(for: item)
                         }
-                    }
+                    )
             }
             .onMove { from, to in
                 session.reorderRankedItems(from: from, to: to, context: modelContext)
@@ -179,54 +188,88 @@ struct ResultsView: View {
 
     private var bottomBar: some View {
         VStack(spacing: 10) {
-            Divider().padding(.bottom, 2)
-
             if isSelectingForRefinement {
                 let count = selectedForRefinement.count
-                Button {
+                FloatingGlassButton(
+                    title: count >= 2 ? "Refine \(count) items with Pairwise" : "Select at least 2 items",
+                    systemImage: "arrow.left.arrow.right",
+                    prominent: count >= 2,
+                    disabled: count < 2
+                ) {
                     let items = session.rankedItems.filter { selectedForRefinement.contains($0.id) }
                     isSelectingForRefinement = false
                     selectedForRefinement = []
                     session.startRefinement(items: items, eloEngine: eloEngine)
-                } label: {
-                    Label(
-                        count >= 2 ? "Refine \(count) items with Pairwise →" : "Select at least 2 items",
-                        systemImage: "arrow.left.arrow.right"
-                    )
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(count < 2)
-                .padding(.horizontal)
 
                 Button("Cancel") {
                     isSelectingForRefinement = false
                     selectedForRefinement = []
                 }
-                .font(.subheadline)
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
-                .padding(.bottom, 32)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 22)
+                .background(Capsule().fill(.ultraThinMaterial))
+                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
             } else {
-                Button {
-                    showApplySheet = true
-                } label: {
-                    Label("Apply to Reminders…", systemImage: "square.and.arrow.down")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .padding(.horizontal)
+                FloatingGlassButton(
+                    title: "Apply to Reminders",
+                    systemImage: "square.and.arrow.down",
+                    prominent: true
+                ) { showApplySheet = true }
 
                 Button("Done") {
                     session.reset(eloEngine: eloEngine)
                 }
-                .font(.subheadline)
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
-                .padding(.bottom, 32)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 22)
+                .background(Capsule().fill(.ultraThinMaterial))
+                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
             }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: - Tap Handling
+
+    private func handlePrimaryTap(for item: ReminderItem) {
+        if isSelectingForRefinement {
+            toggleRefinementSelection(item.id)
+            return
+        }
+        switch homeTapDefault {
+        case .edit:
+            detailItem = item
+        case .select:
+            isSelectingForRefinement = true
+            toggleRefinementSelection(item.id)
+        }
+    }
+
+    private func handleSecondaryTap(for item: ReminderItem) {
+        // Long-press = opposite of primary.
+        if isSelectingForRefinement {
+            detailItem = item
+            return
+        }
+        switch homeTapDefault {
+        case .edit:
+            isSelectingForRefinement = true
+            toggleRefinementSelection(item.id)
+        case .select:
+            detailItem = item
+        }
+    }
+
+    private func toggleRefinementSelection(_ id: String) {
+        if selectedForRefinement.contains(id) {
+            selectedForRefinement.remove(id)
+        } else {
+            selectedForRefinement.insert(id)
         }
     }
 
@@ -783,6 +826,42 @@ struct ApplySheet: View {
                 Text("Flags the top \(options.flagCount) item\(options.flagCount == 1 ? "" : "s") in Reminders. Clears flags from all others in the session.")
             }
         }
+    }
+}
+
+// MARK: - Floating Glass Button (shared across views)
+
+/// Large tasteful floating-material button. Used at the bottom of Home, Results,
+/// and Pairwise screens for the primary action.
+struct FloatingGlassButton: View {
+    let title: String
+    var systemImage: String? = nil
+    var prominent: Bool = true
+    var disabled: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if let systemImage { Image(systemName: systemImage) }
+                Text(title).font(.headline)
+            }
+            .foregroundStyle(prominent ? Color.white : Color.primary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        Capsule().fill(prominent ? Color.blue.opacity(0.85) : Color.clear)
+                    )
+                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+            )
+            .opacity(disabled ? 0.5 : 1.0)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
     }
 }
 

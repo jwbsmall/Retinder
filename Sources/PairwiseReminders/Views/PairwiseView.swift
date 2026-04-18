@@ -11,12 +11,30 @@ struct PairwiseView: View {
     @EnvironmentObject private var engine: EloEngine
     @Environment(\.modelContext) private var modelContext
 
+    @AppStorage("pairwise_tap_default") private var pairwiseTapDefaultRaw: String = PairwiseTapDefault.choose.rawValue
+    private var pairwiseTapDefault: PairwiseTapDefault { PairwiseTapDefault(rawValue: pairwiseTapDefaultRaw) ?? .choose }
+
     @State private var dragOffset: CGSize = .zero
     /// Randomly flipped each comparison so neither position is consistently favoured.
     @State private var isFlipped: Bool = false
     @State private var editingItem: ReminderItem?
 
     private let swipeThreshold: CGFloat = 100
+
+    private func primaryAction(for item: ReminderItem) {
+        switch pairwiseTapDefault {
+        case .choose: engine.choose(winner: item)
+        case .edit:   editingItem = item
+        }
+    }
+
+    private func secondaryAction(for item: ReminderItem) {
+        // Long-press = opposite of primary.
+        switch pairwiseTapDefault {
+        case .choose: editingItem = item
+        case .edit:   engine.choose(winner: item)
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -147,12 +165,12 @@ struct PairwiseView: View {
         return VStack(spacing: 0) {
             Spacer(minLength: 8)
 
-            // Compact top card — tap to pick it, long-press to edit
-            Button { engine.choose(winner: topItem) } label: {
+            // Compact top card — primary/secondary action respects the user's setting.
+            Button { primaryAction(for: topItem) } label: {
                 compactCard(topItem)
             }
             .buttonStyle(.plain)
-            .simultaneousGesture(LongPressGesture().onEnded { _ in editingItem = topItem })
+            .simultaneousGesture(LongPressGesture().onEnded { _ in secondaryAction(for: topItem) })
             .padding(.horizontal)
 
             HStack {
@@ -167,7 +185,7 @@ struct PairwiseView: View {
             // Large bottom card — swipe right to pick it, swipe left to pick top card
             swipeCard(item: bottomItem, versus: topItem)
                 .padding(.horizontal)
-                .simultaneousGesture(LongPressGesture().onEnded { _ in editingItem = bottomItem })
+                .simultaneousGesture(LongPressGesture().onEnded { _ in secondaryAction(for: bottomItem) })
 
             // Swipe direction hints — always visible so the gesture is discoverable
             HStack {
@@ -223,7 +241,7 @@ struct PairwiseView: View {
                         }
                     }
             )
-            .onTapGesture { engine.choose(winner: item) }
+            .onTapGesture { primaryAction(for: item) }
     }
 
     @ViewBuilder

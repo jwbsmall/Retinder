@@ -42,6 +42,9 @@ struct HomeView: View {
     @EnvironmentObject private var eloEngine: EloEngine
     @Environment(\.modelContext) private var modelContext
 
+    @AppStorage("home_tap_default") private var homeTapDefaultRaw: String = TapDefault.edit.rawValue
+    private var homeTapDefault: TapDefault { TapDefault(rawValue: homeTapDefaultRaw) ?? .edit }
+
     @Query private var allRecords: [RankedItemRecord]
 
     @State private var selectedList: EKCalendar?
@@ -145,27 +148,30 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
+            Group {
                 if remindersManager.lists.isEmpty {
                     emptyState
-                        .frame(maxHeight: .infinity)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     switch groupingMode {
-                    case .byList:    listContent.frame(maxHeight: .infinity)
-                    case .flat:      flatContent.frame(maxHeight: .infinity)
-                    case .byDueDate: dueDateContent.frame(maxHeight: .infinity)
+                    case .byList:    listContent
+                    case .flat:      flatContent
+                    case .byDueDate: dueDateContent
                     }
                 }
-                Divider()
-                prioritiseButton
             }
+            .safeAreaInset(edge: .bottom) { prioritiseButton }
             .navigationTitle("Retinder")
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .navigationDestination(item: $selectedList) { calendar in
                 ListDetailView(calendar: calendar)
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    if isSelecting {
+                    // Cancel is shown whenever there's an active selection — even outside
+                    // Select mode — so the user can always clear a stale selection.
+                    if isSelecting || !itemSelection.isEmpty {
                         Button("Cancel") {
                             editMode = .inactive
                             itemSelection = []
@@ -384,15 +390,23 @@ struct HomeView: View {
                     ExpandedItemRow(item: item, rank: eloRankByID[item.id], eloMin: eloMin, eloMax: eloMax)
                         .tag(item.id)
                         .contentShape(Rectangle())
-                        .onTapGesture { if editMode == .inactive { editingItem = item } }
-                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
+                        .modifier(RowTapModifier(
+                            tapDefault: homeTapDefault,
+                            isInSelectMode: editMode == .active,
+                            onEdit: { editingItem = item },
+                            onToggleSelect: { toggleSelection(item.id) }
+                        ))
                 }
                 ForEach(unranked, id: \.id) { item in
                     ExpandedItemRow(item: item, rank: nil, eloMin: eloMin, eloMax: eloMax)
                         .tag(item.id)
                         .contentShape(Rectangle())
-                        .onTapGesture { if editMode == .inactive { editingItem = item } }
-                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
+                        .modifier(RowTapModifier(
+                            tapDefault: homeTapDefault,
+                            isInSelectMode: editMode == .active,
+                            onEdit: { editingItem = item },
+                            onToggleSelect: { toggleSelection(item.id) }
+                        ))
                 }
             }
         }
@@ -417,8 +431,12 @@ struct HomeView: View {
                     )
                     .tag(item.id)
                     .contentShape(Rectangle())
-                    .onTapGesture { if editMode == .inactive { editingItem = item } }
-                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
+                    .modifier(RowTapModifier(
+                        tapDefault: homeTapDefault,
+                        isInSelectMode: editMode == .active,
+                        onEdit: { editingItem = item },
+                        onToggleSelect: { toggleSelection(item.id) }
+                    ))
                 }
                 ForEach(unranked, id: \.id) { item in
                     ExpandedItemRow(
@@ -428,8 +446,12 @@ struct HomeView: View {
                     )
                     .tag(item.id)
                     .contentShape(Rectangle())
-                    .onTapGesture { if editMode == .inactive { editingItem = item } }
-                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
+                    .modifier(RowTapModifier(
+                        tapDefault: homeTapDefault,
+                        isInSelectMode: editMode == .active,
+                        onEdit: { editingItem = item },
+                        onToggleSelect: { toggleSelection(item.id) }
+                    ))
                 }
             }
         }
@@ -459,8 +481,12 @@ struct HomeView: View {
                             )
                             .tag(item.id)
                             .contentShape(Rectangle())
-                            .onTapGesture { if editMode == .inactive { editingItem = item } }
-                            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
+                            .modifier(RowTapModifier(
+                                tapDefault: homeTapDefault,
+                                isInSelectMode: editMode == .active,
+                                onEdit: { editingItem = item },
+                                onToggleSelect: { toggleSelection(item.id) }
+                            ))
                         }
                         ForEach(unranked, id: \.id) { item in
                             ExpandedItemRow(
@@ -470,8 +496,12 @@ struct HomeView: View {
                             )
                             .tag(item.id)
                             .contentShape(Rectangle())
-                            .onTapGesture { if editMode == .inactive { editingItem = item } }
-                            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = item })
+                            .modifier(RowTapModifier(
+                                tapDefault: homeTapDefault,
+                                isInSelectMode: editMode == .active,
+                                onEdit: { editingItem = item },
+                                onToggleSelect: { toggleSelection(item.id) }
+                            ))
                         }
                     }
                 }
@@ -488,25 +518,15 @@ struct HomeView: View {
     private var hasSelection: Bool { !itemSelection.isEmpty }
 
     private var prioritiseButton: some View {
-        VStack(spacing: 0) {
-            Button {
-                if hasSelection {
-                    showPrioritiseOptions = true
-                } else {
-                    editMode = .active
-                }
-            } label: {
-                Text(prioritiseLabel)
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
+        FloatingGlassButton(title: prioritiseLabel, prominent: hasSelection) {
+            if hasSelection {
+                showPrioritiseOptions = true
+            } else {
+                editMode = .active
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(hasSelection ? .blue : .secondary)
-            .padding(.horizontal)
-            .padding(.vertical, 12)
         }
-        .background(.regularMaterial)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
     }
 
     private var prioritiseLabel: String {
@@ -569,6 +589,14 @@ struct HomeView: View {
         }
     }
 
+    private func toggleSelection(_ id: String) {
+        if itemSelection.contains(id) {
+            itemSelection.remove(id)
+        } else {
+            itemSelection.insert(id)
+        }
+    }
+
     /// When a list (calendar ID) is added to the selection, auto-select all its reminder items.
     /// When a list is removed from the selection, deselect all its reminder items.
     private func cascadeListSelection(old: Set<String>, new: Set<String>) {
@@ -582,6 +610,37 @@ struct HomeView: View {
         for id in removedLists {
             if let items = itemsByList[id] {
                 itemSelection.subtract(items.map(\.id))
+            }
+        }
+    }
+}
+
+// MARK: - Row Tap Modifier
+
+/// Applies the user's configured tap-default to a reminder row.
+/// - In Select mode: tap toggles the List's built-in selection (we don't intercept).
+/// - Out of Select mode: tap and long-press bind to the configured primary/secondary actions.
+struct RowTapModifier: ViewModifier {
+    let tapDefault: TapDefault
+    let isInSelectMode: Bool
+    let onEdit: () -> Void
+    let onToggleSelect: () -> Void
+
+    func body(content: Content) -> some View {
+        // In Select mode, let the List's selection binding handle the tap.
+        if isInSelectMode {
+            content
+                .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in onEdit() })
+        } else {
+            switch tapDefault {
+            case .edit:
+                content
+                    .onTapGesture { onEdit() }
+                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in onToggleSelect() })
+            case .select:
+                content
+                    .onTapGesture { onToggleSelect() }
+                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in onEdit() })
             }
         }
     }
