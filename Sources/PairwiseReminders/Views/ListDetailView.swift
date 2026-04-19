@@ -124,7 +124,9 @@ struct ListDetailView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle")
-                .font(.system(size: 48))
+                .font(.largeTitle)
+                .imageScale(.large)
+                .dynamicTypeSize(.small ... .accessibility2)
                 .foregroundStyle(.secondary)
             Text("All done!")
                 .font(.title2.bold())
@@ -156,6 +158,7 @@ struct ListDetailView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
+            .accessibilityLabel("More options")
         }
     }
 

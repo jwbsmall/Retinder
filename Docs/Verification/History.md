@@ -1,6 +1,6 @@
 # Verification — History
 
-**Last verified:** 2026-04-19 against `7a291db`
+**Last verified:** 2026-04-19 against `206c92e`
 **Source:** `Sources/PairwiseReminders/Views/HistoryView.swift`
 **Related issues:** —
 
@@ -20,6 +20,7 @@ Compact log of every pairwise comparison decision, grouped by session and ordere
 - [ ] 100+ sessions — scroll is smooth; no excessive SwiftData fetch cost on open.
 - [ ] A reminder that has since been deleted — its history row still renders (stored title, not a live EventKit lookup).
 - [ ] Session with a single "equal" decision — decision label reads "Equal", not blank.
+- [ ] Empty-state clock icon scales with Dynamic Type up to Accessibility 2.
 
 ## Known gaps
 - No entry point from Home yet — navigation wiring TBD.

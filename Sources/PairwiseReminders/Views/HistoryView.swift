@@ -44,7 +44,9 @@ struct HistoryView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
-                .font(.system(size: 44))
+                .font(.largeTitle)
+                .imageScale(.large)
+                .dynamicTypeSize(.small ... .accessibility2)
                 .foregroundStyle(.secondary)
             Text("No history yet")
                 .font(.title3.bold())

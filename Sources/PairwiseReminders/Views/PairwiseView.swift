@@ -9,6 +9,7 @@ struct PairwiseView: View {
     @EnvironmentObject private var session: PairwiseSession
     @EnvironmentObject private var engine: EloEngine
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // Bottom card drag state
     @State private var dragOffset: CGSize = .zero
@@ -31,10 +32,12 @@ struct PairwiseView: View {
             if let pair = engine.currentPair {
                 swipeContent(pair)
                     .id(engine.comparisonCount)
-                    .transition(.asymmetric(
-                        insertion: .push(from: .trailing).combined(with: .opacity),
-                        removal:   .push(from: .leading).combined(with: .opacity)
-                    ))
+                    .transition(reduceMotion
+                        ? .opacity
+                        : .asymmetric(
+                            insertion: .push(from: .trailing).combined(with: .opacity),
+                            removal:   .push(from: .leading).combined(with: .opacity)
+                        ))
             } else if engine.isConverged {
                 convergedState
             } else {
@@ -49,7 +52,7 @@ struct PairwiseView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             progressBand
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: engine.comparisonCount)
+        .animation(reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.35, dampingFraction: 0.8), value: engine.comparisonCount)
         .onChange(of: engine.comparisonCount) { _, _ in
             withAnimation(.spring(response: 0.3)) {
                 dragOffset = .zero
@@ -165,7 +168,9 @@ struct PairwiseView: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 52))
+                .font(.largeTitle)
+                .imageScale(.large)
+                .dynamicTypeSize(.small ... .accessibility2)
                 .foregroundStyle(.blue)
             Text("Ranking settled!")
                 .font(.title2.bold())
@@ -267,7 +272,7 @@ struct PairwiseView: View {
                     .onEnded { value in
                         let dx = value.translation.width
                         if dx > swipeThreshold {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.35, dampingFraction: 0.8)) {
                                 exitOffset.wrappedValue = 900
                                 isExiting.wrappedValue = true
                             }
@@ -275,7 +280,7 @@ struct PairwiseView: View {
                                 engine.choose(winner: item)
                             }
                         } else if dx < -swipeThreshold {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.35, dampingFraction: 0.8)) {
                                 exitOffset.wrappedValue = -900
                                 isExiting.wrappedValue = true
                             }
@@ -302,7 +307,8 @@ struct PairwiseView: View {
                 .overlay(
                     VStack(spacing: 6) {
                         Image(systemName: pickingThis ? "hand.thumbsup.fill" : "arrow.up")
-                            .font(.system(size: 32, weight: .bold))
+                            .font(.title.bold())
+                            .dynamicTypeSize(.small ... .accessibility1)
                             .foregroundStyle(pickingThis ? .green : .blue)
                         Text(pickingThis ? "This one" : "Top one")
                             .font(.caption.bold())

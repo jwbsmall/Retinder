@@ -6,6 +6,7 @@ import SwiftUI
 struct FilteringView: View {
 
     @EnvironmentObject private var session: PairwiseSession
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var statusLine = "Fetching reminders…"
 
@@ -18,7 +19,9 @@ struct FilteringView: View {
                     .fill(.blue.opacity(0.1))
                     .frame(width: 120, height: 120)
                 Image(systemName: "sparkles")
-                    .font(.system(size: 52, weight: .medium))
+                    .font(.largeTitle.weight(.medium))
+                    .imageScale(.large)
+                    .dynamicTypeSize(.small ... .accessibility2)
                     .foregroundStyle(.blue)
                     .symbolEffect(.variableColor.iterative)
             }
@@ -31,7 +34,7 @@ struct FilteringView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .animation(.easeInOut(duration: 0.3), value: statusLine)
+                    .animation(reduceMotion ? .none : .easeInOut(duration: 0.3), value: statusLine)
 
                 if let error = session.seedingError {
                     Text(error)

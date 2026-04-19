@@ -1,6 +1,6 @@
 # Verification — Home
 
-**Last verified:** 2026-04-19 against `855b45e`
+**Last verified:** 2026-04-19 against `206c92e`
 **Source:** `Sources/PairwiseReminders/Views/HomeView.swift`
 **Related issues:** #101, #106, #114
 
@@ -32,6 +32,8 @@ The main landing screen: segmented mode picker (Lists / All Reminders / Due Date
 - [ ] Long reminder title (multiline) — row height grows; layout doesn't clip.
 - [ ] Section gap between list groups is tight (`.listSectionSpacing(.compact)`), not the default chunky iOS grouped inset.
 - [ ] Unranked items (comparisonCount == 0) show no sparkline pill.
+- [ ] VoiceOver reads the filter icon as "Group, sort, and history" (not the symbol name).
+- [ ] Empty-state clipboard icon scales with Dynamic Type up to Accessibility 2.
 
 ## Known gaps
 - Widget surface not yet built (tracked separately).
