@@ -163,14 +163,11 @@ struct HomeView: View {
             .safeAreaInset(edge: .bottom) { prioritiseButton }
             .navigationTitle("Retinder")
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
             .navigationDestination(item: $selectedList) { calendar in
                 ListDetailView(calendar: calendar)
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    // Cancel is shown whenever there's an active selection — even outside
-                    // Select mode — so the user can always clear a stale selection.
                     if isSelecting || !itemSelection.isEmpty {
                         Button("Cancel") {
                             editMode = .inactive
@@ -190,54 +187,53 @@ struct HomeView: View {
                         .font(.subheadline)
                     }
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 12) {
-                        // History stays visible in all modes.
-                        Button { showHistory = true } label: {
-                            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
-                        }
-                        .accessibilityLabel("Comparison history")
 
-                        if !isSelecting {
-                            // Group By and Sort By as independent menus (Files-app style).
-                            Menu {
+                // Settings gear — always visible so users can find it.
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { showSettings = true } label: {
+                        Image(systemName: "gear")
+                    }
+                    .accessibilityLabel("Settings")
+                }
+
+                // Group / Sort / History collapsed into one menu.
+                if !isSelecting {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Menu {
+                            Section("Group By") {
                                 Picker("Group By", selection: $groupingMode) {
                                     ForEach(GroupingMode.allCases, id: \.self) { mode in
                                         Text(mode.label).tag(mode)
                                     }
                                 }
-                            } label: {
-                                Image(systemName: "square.grid.2x2")
                             }
-                            .accessibilityLabel("Group by")
-
-                            Menu {
+                            Section("Sort By") {
                                 Picker("Sort By", selection: $sortMode) {
                                     ForEach(SortMode.allCases, id: \.self) { mode in
                                         Text(mode.label).tag(mode)
                                     }
                                 }
-                            } label: {
-                                Image(systemName: "arrow.up.arrow.down.circle")
                             }
-                            .accessibilityLabel("Sort by")
-
-                            Button { showSettings = true } label: {
-                                Image(systemName: "gear")
+                            Divider()
+                            Button("Comparison History", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90") {
+                                showHistory = true
                             }
-                            .accessibilityLabel("Settings")
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
-
-                        Button(isSelecting ? "Done" : "Select") {
-                            if editMode == .active {
-                                editMode = .inactive
-                                itemSelection = []
-                            } else {
-                                editMode = .active
-                            }
-                        }
-                        .font(.subheadline.weight(isSelecting ? .semibold : .regular))
                     }
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(isSelecting ? "Done" : "Select") {
+                        if editMode == .active {
+                            editMode = .inactive
+                            itemSelection = []
+                        } else {
+                            editMode = .active
+                        }
+                    }
+                    .font(.subheadline.weight(isSelecting ? .semibold : .regular))
                 }
             }
             .fullScreenCover(isPresented: $showPrioritise) {
@@ -285,7 +281,7 @@ struct HomeView: View {
                         }
                     }
                 }
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
             // Bridge: when ListDetailView sets pendingListIDs, pre-select + open options.
@@ -518,14 +514,31 @@ struct HomeView: View {
     private var hasSelection: Bool { !itemSelection.isEmpty }
 
     private var prioritiseButton: some View {
-        FloatingGlassButton(title: prioritiseLabel, prominent: hasSelection) {
-            if hasSelection {
-                showPrioritiseOptions = true
-            } else {
-                editMode = .active
+        HStack {
+            Spacer()
+            Button {
+                if hasSelection {
+                    showPrioritiseOptions = true
+                } else {
+                    editMode = .active
+                }
+            } label: {
+                Label(prioritiseLabel, systemImage: "arrow.left.arrow.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(hasSelection ? .white : .primary)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 13)
+                    .background(
+                        Capsule()
+                            .fill(.ultraThinMaterial)
+                            .overlay(Capsule().fill(hasSelection ? Color.blue.opacity(0.9) : .clear))
+                            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                            .shadow(color: .black.opacity(0.2), radius: 12, y: 5)
+                    )
             }
+            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 20)
+        .padding(.trailing, 20)
         .padding(.bottom, 12)
     }
 

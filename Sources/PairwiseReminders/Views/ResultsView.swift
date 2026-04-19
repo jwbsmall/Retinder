@@ -213,25 +213,31 @@ struct ResultsView: View {
                 .background(Capsule().fill(.ultraThinMaterial))
                 .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
             } else {
-                FloatingGlassButton(
-                    title: "Apply to Reminders",
-                    systemImage: "square.and.arrow.down",
-                    prominent: true
-                ) { showApplySheet = true }
+                HStack(spacing: 12) {
+                    FloatingGlassButton(
+                        title: "Done",
+                        systemImage: "checkmark",
+                        prominent: false
+                    ) { session.reset(eloEngine: eloEngine) }
 
-                Button("Done") {
-                    session.reset(eloEngine: eloEngine)
+                    FloatingGlassButton(
+                        title: "Apply",
+                        systemImage: "square.and.arrow.down",
+                        prominent: true
+                    ) { showApplySheet = true }
                 }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 22)
-                .background(Capsule().fill(.ultraThinMaterial))
-                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
             }
         }
         .padding(.horizontal, 20)
-        .padding(.bottom, 8)
+        .padding(.vertical, 12)
+        .background(
+            LinearGradient(
+                colors: [Color(.systemBackground).opacity(0), Color(.systemBackground)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        )
     }
 
     // MARK: - Tap Handling
@@ -672,6 +678,8 @@ struct ApplySheet: View {
             }
             .navigationTitle("Apply to Reminders")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.regularMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
