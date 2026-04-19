@@ -72,13 +72,11 @@ To add new source files, use Xcode's New File dialog — it updates `.xcodeproj`
 
 ---
 
-## No Tests Yet
+## Tests
 
-There is currently no test target. If adding tests, use **XCTest** or the **Swift Testing** framework. Key areas that need coverage:
+No test target yet — **manual verification docs under `Docs/Verification/` are the current safety net** for UI/EventKit/SwiftData behaviour, enforced per-PR by a GitHub Action. See the **Testing & Verification** section below for the full workflow.
 
-- `EloEngine` — merge-sort logic and `choose(winner:)` path
-- `AnthropicService` — request construction and response parsing
-- `RemindersManager` — `applyPriorities()` and `applyTopNUrgent()` save discipline
+When a test target is added, use **Swift Testing** (not XCTest) and prioritise: `EloEngine` (merge-sort + undo + convergence), `AnthropicService` (request/response with fixtures, no network), `PairwiseSession` (phase transitions via a `RemindersManagerProtocol` fake).
 
 ---
 
@@ -195,6 +193,24 @@ The API key is entered in `SettingsView` (gear icon in HomeView). No onboarding 
 ## iOS Permissions
 
 `NSRemindersUsageDescription` is declared in `PairwiseReminders/Info.plist`. The app requests full Reminders access via `EKEventStore.requestFullAccessToReminders()`.
+
+---
+
+## Testing & Verification
+
+### Automated tests
+
+There is currently no test target. If adding one, use **Swift Testing** (Xcode 16+) in preference to XCTest. Highest-leverage seams to cover first: `EloEngine` (merge-sort, undo, convergence), `AnthropicService` (request construction, fixture-based response decoding), and `PairwiseSession` phase transitions (introduce a `RemindersManagerProtocol` so the session can be tested against a fake).
+
+### Verification docs (manual checklists)
+
+Because the UI surface is SwiftUI + EventKit-bound, manual verification covers the gap between unit tests and shipped behaviour. One markdown doc per user-facing surface lives under [`Docs/Verification/`](Docs/Verification/README.md). Every doc follows the same shape: Scope → Golden path → Edge cases → Known gaps → `Last verified: YYYY-MM-DD against <short-sha>`.
+
+**Any PR that changes a file under `Sources/PairwiseReminders/Views/` must update the matching verification doc.** Even a no-behaviour-change PR should bump the `Last verified` date + commit hash when you re-run the checklist.
+
+The mapping view → doc is enforced by `.github/workflows/verification-sync.yml` (via `.github/scripts/check-verification.sh`). It blocks PRs that touch a view file without touching its doc. Escape hatch: add `[verification: n/a — <reason>]` to the PR body for pure refactors / non-visible changes.
+
+**Adding a new view file:** create the matching `Docs/Verification/<Surface>.md`, add a bullet to the PR template under **Surfaces touched**, and add the pair to `VIEW_TO_DOC` in `check-verification.sh`. The workflow will fail until all three are done.
 
 ---
 
