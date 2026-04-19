@@ -42,9 +42,6 @@ struct HomeView: View {
     @EnvironmentObject private var eloEngine: EloEngine
     @Environment(\.modelContext) private var modelContext
 
-    @AppStorage("home_tap_default") private var homeTapDefaultRaw: String = TapDefault.edit.rawValue
-    private var homeTapDefault: TapDefault { TapDefault(rawValue: homeTapDefaultRaw) ?? .edit }
-
     @Query private var allRecords: [RankedItemRecord]
 
     @State private var selectedList: EKCalendar?
@@ -219,7 +216,7 @@ struct HomeView: View {
                                 showHistory = true
                             }
                         } label: {
-                            Image(systemName: "ellipsis.circle")
+                            Image(systemName: "line.3.horizontal.decrease.circle")
                         }
                     }
                 }
@@ -387,7 +384,6 @@ struct HomeView: View {
                         .tag(item.id)
                         .contentShape(Rectangle())
                         .modifier(RowTapModifier(
-                            tapDefault: homeTapDefault,
                             isInSelectMode: editMode == .active,
                             onEdit: { editingItem = item },
                             onToggleSelect: { toggleSelection(item.id) }
@@ -398,7 +394,6 @@ struct HomeView: View {
                         .tag(item.id)
                         .contentShape(Rectangle())
                         .modifier(RowTapModifier(
-                            tapDefault: homeTapDefault,
                             isInSelectMode: editMode == .active,
                             onEdit: { editingItem = item },
                             onToggleSelect: { toggleSelection(item.id) }
@@ -428,7 +423,6 @@ struct HomeView: View {
                     .tag(item.id)
                     .contentShape(Rectangle())
                     .modifier(RowTapModifier(
-                        tapDefault: homeTapDefault,
                         isInSelectMode: editMode == .active,
                         onEdit: { editingItem = item },
                         onToggleSelect: { toggleSelection(item.id) }
@@ -443,7 +437,6 @@ struct HomeView: View {
                     .tag(item.id)
                     .contentShape(Rectangle())
                     .modifier(RowTapModifier(
-                        tapDefault: homeTapDefault,
                         isInSelectMode: editMode == .active,
                         onEdit: { editingItem = item },
                         onToggleSelect: { toggleSelection(item.id) }
@@ -478,7 +471,6 @@ struct HomeView: View {
                             .tag(item.id)
                             .contentShape(Rectangle())
                             .modifier(RowTapModifier(
-                                tapDefault: homeTapDefault,
                                 isInSelectMode: editMode == .active,
                                 onEdit: { editingItem = item },
                                 onToggleSelect: { toggleSelection(item.id) }
@@ -493,7 +485,6 @@ struct HomeView: View {
                             .tag(item.id)
                             .contentShape(Rectangle())
                             .modifier(RowTapModifier(
-                                tapDefault: homeTapDefault,
                                 isInSelectMode: editMode == .active,
                                 onEdit: { editingItem = item },
                                 onToggleSelect: { toggleSelection(item.id) }
@@ -630,31 +621,20 @@ struct HomeView: View {
 
 // MARK: - Row Tap Modifier
 
-/// Applies the user's configured tap-default to a reminder row.
-/// - In Select mode: tap toggles the List's built-in selection (we don't intercept).
-/// - Out of Select mode: tap and long-press bind to the configured primary/secondary actions.
 struct RowTapModifier: ViewModifier {
-    let tapDefault: TapDefault
     let isInSelectMode: Bool
     let onEdit: () -> Void
     let onToggleSelect: () -> Void
 
     func body(content: Content) -> some View {
-        // In Select mode, let the List's selection binding handle the tap.
         if isInSelectMode {
+            // Let the List's selection binding handle the tap; long-press opens edit.
             content
                 .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in onEdit() })
         } else {
-            switch tapDefault {
-            case .edit:
-                content
-                    .onTapGesture { onEdit() }
-                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in onToggleSelect() })
-            case .select:
-                content
-                    .onTapGesture { onToggleSelect() }
-                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in onEdit() })
-            }
+            content
+                .onTapGesture { onEdit() }
+                .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in onToggleSelect() })
         }
     }
 }
@@ -838,13 +818,10 @@ private struct CollapsedListHeader: View {
             let listColor = Color(cgColor: calendar.cgColor)
             HStack(alignment: .bottom, spacing: 2) {
                 ForEach(Array(rankedRecords.prefix(10).enumerated()), id: \.offset) { _, record in
-                    let h = 4.0 + 12.0 * ((record.eloRating - globalMin) / range)
-                    Capsule()
-                        .fill(listColor.opacity(0.75))
-                        .frame(width: 4, height: h)
+                    let fill = (record.eloRating - globalMin) / range
+                    SparklinePill(fill: fill, color: listColor)
                 }
             }
-            .frame(height: 16, alignment: .bottom)
         }
     }
 }
@@ -860,41 +837,17 @@ private struct ExpandedItemRow: View {
     /// Show the list name as a subtitle — useful in flat/date grouping modes.
     var showListName: Bool = false
 
-    @Environment(\.editMode) private var editMode
-
-    private var isSelecting: Bool { editMode?.wrappedValue == .active }
-
     private var eloStrength: Double {
         guard rank != nil, eloMax > eloMin else { return 0 }
         return max(0, min(1, (item.eloRating - eloMin) / (eloMax - eloMin)))
     }
 
-    private var barTint: Color {
-        if eloStrength > 0.66 { return .blue }
-        if eloStrength > 0.33 { return .indigo }
-        return Color(.systemGray3)
+    private var listColor: Color {
+        Color(cgColor: item.ekReminder.calendar?.cgColor ?? CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1))
     }
 
     var body: some View {
         HStack(spacing: 10) {
-            // Hide rank badge in selection mode — SwiftUI draws its own selection circle.
-            if !isSelecting {
-                if let r = rank {
-                    ZStack {
-                        Circle()
-                            .fill(badgeColor(r))
-                            .frame(width: 28, height: 28)
-                        Text("\(r)")
-                            .font(.system(.caption, design: .rounded).bold())
-                            .foregroundStyle(.white)
-                    }
-                } else {
-                    Circle()
-                        .strokeBorder(Color(.tertiaryLabel), lineWidth: 1.5)
-                        .frame(width: 26, height: 26)
-                }
-            }
-
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title)
                     .font(.subheadline)
@@ -906,25 +859,36 @@ private struct ExpandedItemRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-
-                // Continuous Elo strength bar — only for ranked items
-                if rank != nil {
-                    ProgressView(value: eloStrength)
-                        .tint(barTint)
-                        .frame(height: 3)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if rank != nil {
+                SparklinePill(fill: eloStrength, color: listColor)
+            }
         }
         .padding(.vertical, 2)
     }
+}
 
-    private func badgeColor(_ rank: Int) -> Color {
-        switch rank {
-        case 1: return .blue
-        case 2: return .indigo
-        case 3: return .purple
-        default: return Color(.systemGray3)
+// MARK: - Universal Sparkline Pill
+
+/// Fixed max-height capsule filled proportionally from the bottom — like a vertical battery.
+/// Use standalone for individual items, or combine in an HStack for list headers.
+struct SparklinePill: View {
+    let fill: Double   // 0.0–1.0
+    let color: Color
+    var width: CGFloat = 4
+    var height: CGFloat = 20
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Capsule()
+                .fill(color.opacity(0.12))
+                .frame(width: width, height: height)
+            Capsule()
+                .fill(color.opacity(0.8))
+                .frame(width: width, height: max(width, CGFloat(fill) * height))
         }
+        .frame(width: width, height: height)
     }
 }

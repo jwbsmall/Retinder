@@ -20,9 +20,6 @@ struct ResultsView: View {
     @State private var selectedForRefinement: Set<String> = []
     @State private var editModeValue: EditMode = .inactive
 
-    @AppStorage("home_tap_default") private var homeTapDefaultRaw: String = TapDefault.edit.rawValue
-    private var homeTapDefault: TapDefault { TapDefault(rawValue: homeTapDefaultRaw) ?? .edit }
-
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -245,29 +242,17 @@ struct ResultsView: View {
     private func handlePrimaryTap(for item: ReminderItem) {
         if isSelectingForRefinement {
             toggleRefinementSelection(item.id)
-            return
-        }
-        switch homeTapDefault {
-        case .edit:
+        } else {
             detailItem = item
-        case .select:
-            isSelectingForRefinement = true
-            toggleRefinementSelection(item.id)
         }
     }
 
     private func handleSecondaryTap(for item: ReminderItem) {
-        // Long-press = opposite of primary.
         if isSelectingForRefinement {
             detailItem = item
-            return
-        }
-        switch homeTapDefault {
-        case .edit:
+        } else {
             isSelectingForRefinement = true
             toggleRefinementSelection(item.id)
-        case .select:
-            detailItem = item
         }
     }
 
@@ -362,8 +347,8 @@ private struct SessionRankedRow: View {
         maxRating > minRating ? (item.eloRating - minRating) / (maxRating - minRating) : 0.5
     }
 
-    var strengthColor: Color {
-        strength > 0.66 ? .blue : strength > 0.33 ? .indigo : Color(.systemGray3)
+    private var listColor: Color {
+        Color(cgColor: item.ekReminder.calendar?.cgColor ?? CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1))
     }
 
     var body: some View {
@@ -373,72 +358,36 @@ private struct SessionRankedRow: View {
                     .font(.title3)
                     .foregroundStyle(isSelected ? .blue : Color(.tertiaryLabel))
                     .frame(width: 28)
-            } else {
-                ZStack {
-                    Circle()
-                        .fill(badgeColor)
-                        .frame(width: 38, height: 38)
-                    Text("\(rank)")
-                        .font(.system(.body, design: .rounded).bold())
-                        .foregroundStyle(.white)
-                }
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title)
                     .font(.body)
                     .lineLimit(2)
-                Text(item.listName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if !isSelecting {
-                    ProgressView(value: strength)
-                        .tint(strengthColor)
-                        .frame(width: 80)
+                HStack(spacing: 4) {
+                    Text(item.listName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let confidence = item.aiConfidence {
+                        Text("·")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("\(confidence)%")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
                 }
             }
 
             Spacer()
 
             if !isSelecting {
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(item.priorityLabel(totalCount: total))
-                        .font(.caption.bold())
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(priorityColor.opacity(0.15))
-                        .foregroundStyle(priorityColor)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                    if let confidence = item.aiConfidence {
-                        Text("\(confidence)%")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                }
+                SparklinePill(fill: strength, color: listColor)
             }
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-    }
-
-    private var badgeColor: Color {
-        switch rank {
-        case 1: return .blue
-        case 2: return .indigo
-        case 3: return .purple
-        default: return Color(.systemGray3)
-        }
-    }
-
-    private var priorityColor: Color {
-        switch item.priorityColor(totalCount: total) {
-        case .high:   return .red
-        case .medium: return .orange
-        case .low:    return .yellow
-        case .none:   return Color(.secondaryLabel)
-        }
     }
 }
 
@@ -676,7 +625,7 @@ struct ApplySheet: View {
                 options.mediumDueTarget = session.defaultMediumDueTarget
                 options.lowDueTarget    = session.defaultLowDueTarget
             }
-            .navigationTitle("Apply to Reminders")
+            .navigationTitle("Apply")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.regularMaterial, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
