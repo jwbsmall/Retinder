@@ -1,0 +1,26 @@
+name: Verification sync
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    paths:
+      - 'Sources/PairwiseReminders/Views/**'
+      - 'Docs/Verification/**'
+      - '.github/scripts/check-verification.sh'
+      - '.github/workflows/verification-sync.yml'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run verification-doc sync check
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          bash .github/scripts/check-verification.sh
