@@ -2,9 +2,8 @@ import SwiftUI
 
 /// Tinder-style swipe UI for Elo-based pairwise comparisons.
 ///
-/// The large bottom card is the interactive one — drag or tap it to pick it.
-/// Tap the compact top card to pick it instead.
-/// "Done for now" is always safe — partial Elo rankings are valid.
+/// Both cards are identical in size and material — swipe the bottom card or tap either card
+/// to pick a winner. "Done for now" and Undo live in the navigation bar as glass pills.
 struct PairwiseView: View {
 
     @EnvironmentObject private var session: PairwiseSession
@@ -15,6 +14,8 @@ struct PairwiseView: View {
     private var pairwiseTapDefault: PairwiseTapDefault { PairwiseTapDefault(rawValue: pairwiseTapDefaultRaw) ?? .choose }
 
     @State private var dragOffset: CGSize = .zero
+    @State private var exitOffset: CGFloat = 0
+    @State private var isExiting: Bool = false
     /// Randomly flipped each comparison so neither position is consistently favoured.
     @State private var isFlipped: Bool = false
     @State private var editingItem: ReminderItem?
@@ -29,7 +30,6 @@ struct PairwiseView: View {
     }
 
     private func secondaryAction(for item: ReminderItem) {
-        // Long-press = opposite of primary.
         switch pairwiseTapDefault {
         case .choose: editingItem = item
         case .edit:   engine.choose(winner: item)
@@ -60,13 +60,14 @@ struct PairwiseView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: engine.comparisonCount)
         .onChange(of: engine.comparisonCount) { _, _ in
             withAnimation(.spring(response: 0.3)) { dragOffset = .zero }
+            exitOffset = 0
+            isExiting = false
             isFlipped = Bool.random()
         }
         .onChange(of: engine.isConverged) { _, converged in
             if converged { session.finish(eloEngine: engine, context: modelContext) }
         }
         .sheet(item: $editingItem, onDismiss: {
-            // Force a redraw so edits appear on the cards immediately.
             let _ = session.sessionItems
         }) { item in
             ReminderEditSheet(item: item)
@@ -74,61 +75,84 @@ struct PairwiseView: View {
                 .presentationDragIndicator(.visible)
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    if engine.canUndo {
-                        Button("Undo", systemImage: "arrow.uturn.backward") {
-                            engine.undo()
-                        }
-                    }
-                    Button("Done for now", systemImage: "xmark") {
-                        session.finish(eloEngine: engine, context: modelContext)
-                    }
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    engine.undo()
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                        .labelStyle(.iconOnly)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(.ultraThinMaterial))
+                        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
                 }
+                .buttonStyle(.plain)
+                .disabled(!engine.canUndo)
+                .opacity(engine.canUndo ? 1 : 0.35)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    session.finish(eloEngine: engine, context: modelContext)
+                } label: {
+                    Label("Done for now", systemImage: "checkmark")
+                        .labelStyle(.iconOnly)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(.ultraThinMaterial))
+                        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
             }
         }
     }
 
-    // MARK: - Header
+    // MARK: - Frosted Header
 
     private var headerBar: some View {
-        VStack(spacing: 10) {
-            HStack {
-                Spacer()
-                Text("Which matters more?")
-                    .font(.headline)
-                Spacer()
-            }
-            .overlay(alignment: .trailing) {
-                Group {
-                    if engine.estimatedRemaining > 0 {
-                        Text("\(engine.estimatedRemaining) left")
-                    } else {
-                        Text("Almost done")
+        VStack(spacing: 0) {
+            VStack(spacing: 8) {
+                HStack {
+                    Text("Which matters more?")
+                        .font(.headline)
+                    Spacer()
+                    Group {
+                        if engine.estimatedRemaining > 0 {
+                            Text("\(engine.estimatedRemaining) left")
+                        } else {
+                            Text("Almost done")
+                        }
                     }
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-            }
-            .padding(.horizontal)
-            .padding(.top)
 
-            ProgressView(
-                value: Double(engine.comparisonCount),
-                total: Double(max(engine.comparisonCount + engine.estimatedRemaining, 1))
+                ProgressView(
+                    value: Double(engine.comparisonCount),
+                    total: Double(max(engine.comparisonCount + engine.estimatedRemaining, 1))
+                )
+                .tint(.blue)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                    )
             )
-            .tint(.blue)
-            .padding(.horizontal)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
 
             if session.seedingFailed && session.mode != .pairwise {
                 Text("AI seeding unavailable — using default ratings")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal)
+                    .padding(.top, 6)
             }
         }
     }
@@ -165,12 +189,12 @@ struct PairwiseView: View {
         return VStack(spacing: 0) {
             Spacer(minLength: 8)
 
-            // Compact top card — primary/secondary action respects the user's setting.
+            // Top card — same size as bottom, tappable
             Button { primaryAction(for: topItem) } label: {
-                compactCard(topItem)
+                PairwiseCardBody(item: topItem)
             }
             .buttonStyle(.plain)
-            .simultaneousGesture(LongPressGesture().onEnded { _ in secondaryAction(for: topItem) })
+            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in secondaryAction(for: topItem) })
             .padding(.horizontal)
 
             HStack {
@@ -182,12 +206,12 @@ struct PairwiseView: View {
             }
             .padding(.vertical, 8)
 
-            // Large bottom card — swipe right to pick it, swipe left to pick top card
+            // Bottom card — swipeable
             swipeCard(item: bottomItem, versus: topItem)
                 .padding(.horizontal)
-                .simultaneousGesture(LongPressGesture().onEnded { _ in secondaryAction(for: bottomItem) })
+                .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in secondaryAction(for: bottomItem) })
 
-            // Swipe direction hints — always visible so the gesture is discoverable
+            // Swipe direction hints
             HStack {
                 Label("Top card", systemImage: "arrow.left")
                     .font(.caption2)
@@ -200,7 +224,7 @@ struct PairwiseView: View {
             .padding(.horizontal, 28)
             .padding(.top, 8)
 
-            // Secondary action — glassy pill button
+            // Equal button
             Button { engine.equal() } label: {
                 Text("About equal")
                     .font(.subheadline.weight(.medium))
@@ -216,28 +240,42 @@ struct PairwiseView: View {
         }
     }
 
-    // MARK: - Large Swipe Card (bottom)
+    // MARK: - Swipe Card (bottom)
 
     private func swipeCard(item: ReminderItem, versus other: ReminderItem) -> some View {
         let normalized = min(max(dragOffset.width / swipeThreshold, -1.0), 1.0)
 
-        return CardBody(item: item)
+        return PairwiseCardBody(item: item)
             .overlay(swipeOverlay(normalized: normalized))
-            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.blue.opacity(0.3), lineWidth: 2))
             .rotationEffect(.degrees(Double(normalized) * 6))
-            .offset(x: dragOffset.width * 0.5)
+            .scaleEffect(1.0 - abs(normalized) * 0.06)
+            .offset(x: dragOffset.width * 0.5 + exitOffset)
+            .opacity(isExiting ? 0 : 1)
             .gesture(
                 DragGesture(minimumDistance: 10)
                     .onChanged { dragOffset = $0.translation }
                     .onEnded { value in
                         let dx = value.translation.width
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            dragOffset = .zero
-                        }
                         if dx > swipeThreshold {
-                            engine.choose(winner: item)
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                exitOffset = 900
+                                isExiting = true
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                                engine.choose(winner: item)
+                            }
                         } else if dx < -swipeThreshold {
-                            engine.choose(winner: other)
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                exitOffset = -900
+                                isExiting = true
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                                engine.choose(winner: other)
+                            }
+                        } else {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                dragOffset = .zero
+                            }
                         }
                     }
             )
@@ -249,7 +287,7 @@ struct PairwiseView: View {
         let magnitude = abs(normalized)
         if magnitude > 0.12 {
             let pickingThis = normalized > 0
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill((pickingThis ? Color.green : Color.blue).opacity(magnitude * 0.3))
                 .overlay(
                     VStack(spacing: 6) {
@@ -264,73 +302,52 @@ struct PairwiseView: View {
                 )
         }
     }
-
-    // MARK: - Compact Top Card
-
-    private func compactCard(_ item: ReminderItem) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.title)
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                Text(item.listName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color(.secondarySystemBackground))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color(.separator).opacity(0.3), lineWidth: 1)
-                )
-        )
-    }
 }
 
 // MARK: - Card Body
 
-private struct CardBody: View {
+private struct PairwiseCardBody: View {
     let item: ReminderItem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(item.title)
-                .font(.title3.bold())
+                .font(.title2.weight(.semibold))
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             if let notes = item.notes, !notes.isEmpty {
                 Text(notes)
                     .font(.subheadline)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .lineLimit(3)
             }
 
             HStack(spacing: 12) {
                 Label(item.listName, systemImage: "list.bullet")
-                    .font(.caption)
+                    .font(.footnote.weight(.medium))
                     .foregroundStyle(.secondary)
 
                 if let due = item.dueDate {
                     Label(due.formatted(.dateTime.day().month()), systemImage: "calendar")
-                        .font(.caption)
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(.secondary)
                 }
             }
         }
         .padding(20)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 170)
         .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(Color(.secondarySystemBackground))
-                .shadow(color: .black.opacity(0.10), radius: 12, y: 5)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.14), radius: 14, y: 6)
         )
     }
 }
