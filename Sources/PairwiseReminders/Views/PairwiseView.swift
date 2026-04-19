@@ -57,6 +57,7 @@ struct PairwiseView: View {
                 Spacer()
             }
         }
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: engine.comparisonCount)
         .onChange(of: engine.comparisonCount) { _, _ in
             withAnimation(.spring(response: 0.3)) { dragOffset = .zero }
@@ -342,12 +343,8 @@ private struct PairwiseCardBody: View {
         .frame(maxWidth: .infinity, minHeight: 170)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.14), radius: 14, y: 6)
+                .fill(.regularMaterial)
+                .shadow(color: .black.opacity(0.1), radius: 16, y: 4)
         )
     }
 }
