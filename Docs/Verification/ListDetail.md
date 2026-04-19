@@ -1,6 +1,6 @@
 # Verification — List detail
 
-**Last verified:** 2026-04-19 against `7a291db`
+**Last verified:** 2026-04-19 against `206c92e`
 **Source:** `Sources/PairwiseReminders/Views/ListDetailView.swift`
 **Related issues:** —
 
@@ -21,6 +21,8 @@ This view may be supplanted by the Home "expand list" affordance — keep the ch
 - [ ] List with zero items — both sections render their empty states cleanly.
 - [ ] List with only unranked items — ranked section is hidden or shows an empty-state hint.
 - [ ] Back to Home reflects any reorderings made here (ranked sparkline updates).
+- [ ] VoiceOver reads the ellipsis toolbar button as "More options".
+- [ ] Empty-state checkmark icon scales with Dynamic Type up to Accessibility 2.
 
 ## Known gaps
 - No "run AI seeding" shortcut from this view.

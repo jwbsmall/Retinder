@@ -1,6 +1,6 @@
 # Verification — Prioritise start
 
-**Last verified:** 2026-04-19 against `7a291db`
+**Last verified:** 2026-04-19 against `206c92e`
 **Source:** `Sources/PairwiseReminders/Views/ListPickerView.swift`, `Sources/PairwiseReminders/Views/FilteringView.swift`, `PrioritiseOptionsSheet` in `HomeView.swift`
 **Related issues:** —
 
@@ -22,6 +22,7 @@ The flow that runs before `PairwiseView` opens: list picker (when entered withou
 - [ ] Pairwise-only mode + top-N — top-N is applied by existing Elo rating (from prior sessions), not AI seed rank.
 - [ ] Start Prioritise with fewer than 2 items in the selection — flow transitions to `.idle` silently (nothing to compare).
 - [ ] Criteria field blank — seeding still runs (criteria is optional).
+- [ ] Respects `accessibilityReduceMotion`: `FilteringView` status-line crossfade is suppressed. Sparkles icon scales with Dynamic Type.
 
 ## Known gaps
 - No visible "time remaining" during seeding — only a spinner.

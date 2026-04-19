@@ -1,6 +1,6 @@
 # Verification — Pairwise comparison
 
-**Last verified:** 2026-04-19 against `855b45e`
+**Last verified:** 2026-04-19 against `206c92e`
 **Source:** `Sources/PairwiseReminders/Views/PairwiseView.swift`
 **Related issues:** #102, #115
 
@@ -34,6 +34,8 @@ The Tinder-style comparison screen: nav bar "Which matters more?" title + progre
 - [ ] Rapid-fire swipes — no stuck mid-transition state.
 - [ ] Session with exactly 2 items — one comparison, then converges.
 - [ ] Top and bottom card drag states are independent — dragging one card doesn't affect the other's position.
+- [ ] Respects `accessibilityReduceMotion`: card push transition becomes a plain opacity fade; swipe-out and comparison change use a short ease instead of spring.
+- [ ] "Ranking settled!" check icon and swipe overlay icons scale with Dynamic Type.
 
 ## Known gaps
 - No haptic feedback on choice (tracked separately).

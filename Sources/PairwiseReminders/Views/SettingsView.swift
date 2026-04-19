@@ -46,6 +46,7 @@ struct SettingsView: View {
                     Image(systemName: apiKeyMasked ? "eye" : "eye.slash")
                         .foregroundStyle(.secondary)
                 }
+                .accessibilityLabel(apiKeyMasked ? "Show API key" : "Hide API key")
                 Button("Save") {
                     saveAPIKey()
                 }

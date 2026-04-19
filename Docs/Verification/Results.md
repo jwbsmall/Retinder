@@ -1,6 +1,6 @@
 # Verification — Results
 
-**Last verified:** 2026-04-19 against `855b45e`
+**Last verified:** 2026-04-19 against `206c92e`
 **Source:** `Sources/PairwiseReminders/Views/ResultsView.swift`
 **Related issues:** #103, #114
 
@@ -29,6 +29,7 @@ Ranked-list view shown after `PairwiseView` finishes or AI Only mode completes: 
 - [ ] Apply with a custom due date per tier — saves that exact date.
 - [ ] Top navigation bar uses `ultraThinMaterial`; floating glass buttons sit on a safe-area inset at the bottom.
 - [ ] Session stopped early — ranked items still show sparkline pills and confidence; Apply is available.
+- [ ] Respects `accessibilityReduceMotion`: "Applied to Reminders!" banner appears via ease instead of spring.
 
 ## Known gaps
 - No "undo apply" — if you apply wrong priorities, you must rerun.

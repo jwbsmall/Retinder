@@ -218,6 +218,7 @@ struct HomeView: View {
                         } label: {
                             Image(systemName: "line.3.horizontal.decrease.circle")
                         }
+                        .accessibilityLabel("Group, sort, and history")
                     }
                 }
 
@@ -549,7 +550,9 @@ struct HomeView: View {
     private var emptyState: some View {
         VStack(spacing: 16) {
             Image(systemName: "list.bullet.clipboard")
-                .font(.system(size: 52))
+                .font(.largeTitle)
+                .imageScale(.large)
+                .dynamicTypeSize(.small ... .accessibility2)
                 .foregroundStyle(.secondary)
             Text("No Reminders Lists")
                 .font(.title2.bold())

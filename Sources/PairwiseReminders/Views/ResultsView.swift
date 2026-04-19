@@ -9,6 +9,7 @@ struct ResultsView: View {
     @EnvironmentObject private var remindersManager: RemindersManager
     @EnvironmentObject private var eloEngine: EloEngine
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var showApplySheet = false
     @State private var showHistory = false
@@ -151,7 +152,7 @@ struct ResultsView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.spring(response: 0.4), value: applied)
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.4), value: applied)
     }
 
     // MARK: - Ranked List
@@ -325,7 +326,7 @@ struct ResultsView: View {
             if options.applyFlags {
                 try remindersManager.applyFlags(items, count: options.flagCount)
             }
-            withAnimation(.spring(response: 0.4)) { applied = true }
+            withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.4)) { applied = true }
         } catch {
             applyError = error.localizedDescription
         }
