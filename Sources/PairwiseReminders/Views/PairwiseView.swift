@@ -2,44 +2,32 @@ import SwiftUI
 
 /// Tinder-style swipe UI for Elo-based pairwise comparisons.
 ///
-/// Both cards are identical in size and material — swipe the bottom card or tap either card
-/// to pick a winner. "Done for now" and Undo live in the navigation bar as glass pills.
+/// Both cards are swipeable with mirrored semantics: swipe right = this card wins,
+/// swipe left = other card wins. Tap either card to choose it; long-press to edit.
 struct PairwiseView: View {
 
     @EnvironmentObject private var session: PairwiseSession
     @EnvironmentObject private var engine: EloEngine
     @Environment(\.modelContext) private var modelContext
 
-    @AppStorage("pairwise_tap_default") private var pairwiseTapDefaultRaw: String = PairwiseTapDefault.choose.rawValue
-    private var pairwiseTapDefault: PairwiseTapDefault { PairwiseTapDefault(rawValue: pairwiseTapDefaultRaw) ?? .choose }
-
+    // Bottom card drag state
     @State private var dragOffset: CGSize = .zero
     @State private var exitOffset: CGFloat = 0
     @State private var isExiting: Bool = false
+
+    // Top card drag state
+    @State private var topDragOffset: CGSize = .zero
+    @State private var topExitOffset: CGFloat = 0
+    @State private var topIsExiting: Bool = false
+
     /// Randomly flipped each comparison so neither position is consistently favoured.
     @State private var isFlipped: Bool = false
     @State private var editingItem: ReminderItem?
 
     private let swipeThreshold: CGFloat = 100
 
-    private func primaryAction(for item: ReminderItem) {
-        switch pairwiseTapDefault {
-        case .choose: engine.choose(winner: item)
-        case .edit:   editingItem = item
-        }
-    }
-
-    private func secondaryAction(for item: ReminderItem) {
-        switch pairwiseTapDefault {
-        case .choose: editingItem = item
-        case .edit:   engine.choose(winner: item)
-        }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            headerBar
-
             if let pair = engine.currentPair {
                 swipeContent(pair)
                     .id(engine.comparisonCount)
@@ -58,11 +46,19 @@ struct PairwiseView: View {
             }
         }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .safeAreaInset(edge: .top, spacing: 0) {
+            progressBand
+        }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: engine.comparisonCount)
         .onChange(of: engine.comparisonCount) { _, _ in
-            withAnimation(.spring(response: 0.3)) { dragOffset = .zero }
+            withAnimation(.spring(response: 0.3)) {
+                dragOffset = .zero
+                topDragOffset = .zero
+            }
             exitOffset = 0
             isExiting = false
+            topExitOffset = 0
+            topIsExiting = false
             isFlipped = Bool.random()
         }
         .onChange(of: engine.isConverged) { _, converged in
@@ -75,6 +71,7 @@ struct PairwiseView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+        .navigationTitle("Which matters more?")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
@@ -95,6 +92,12 @@ struct PairwiseView: View {
                 .opacity(engine.canUndo ? 1 : 0.35)
             }
             ToolbarItem(placement: .topBarTrailing) {
+                Button { showSettingsSheet = true } label: {
+                    Image(systemName: "gear")
+                }
+                .accessibilityLabel("Settings")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     session.finish(eloEngine: engine, context: modelContext)
                 } label: {
@@ -108,17 +111,17 @@ struct PairwiseView: View {
                 .buttonStyle(.plain)
             }
         }
+        .sheet(isPresented: $showSettingsSheet) {
+            SettingsView()
+        }
     }
 
-    // MARK: - Frosted Header
+    // MARK: - Progress Band (extends nav bar glass downward)
 
-    private var headerBar: some View {
+    private var progressBand: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 HStack {
-                    Text("Which matters more?")
-                        .font(.headline)
-                    Spacer()
                     Group {
                         if engine.estimatedRemaining > 0 {
                             Text("\(engine.estimatedRemaining) left")
@@ -128,8 +131,8 @@ struct PairwiseView: View {
                     }
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    Spacer()
                 }
-
                 ProgressView(
                     value: Double(engine.comparisonCount),
                     total: Double(max(engine.comparisonCount + engine.estimatedRemaining, 1))
@@ -137,26 +140,24 @@ struct PairwiseView: View {
                 .tint(.blue)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
-                    )
-            )
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.vertical, 8)
 
             if session.seedingFailed && session.mode != .pairwise {
                 Text("AI seeding unavailable — using default ratings")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .padding(.top, 6)
+                    .padding(.bottom, 6)
             }
         }
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(height: 0.5)
+        }
     }
+
+    @State private var showSettingsSheet = false
 
     // MARK: - Converged State
 
@@ -190,27 +191,41 @@ struct PairwiseView: View {
         return VStack(spacing: 0) {
             Spacer(minLength: 8)
 
-            // Top card — same size as bottom, tappable
-            Button { primaryAction(for: topItem) } label: {
-                PairwiseCardBody(item: topItem)
-            }
-            .buttonStyle(.plain)
-            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in secondaryAction(for: topItem) })
+            // Top card — swipeable: right = top wins, left = bottom wins
+            swipeCard(
+                item: topItem, versus: bottomItem,
+                dragOffset: $topDragOffset,
+                exitOffset: $topExitOffset,
+                isExiting: $topIsExiting
+            )
             .padding(.horizontal)
+            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = topItem })
 
+            // About equal + vs separator
             HStack {
                 Spacer()
-                Text("vs")
-                    .font(.caption.bold())
-                    .foregroundStyle(.tertiary)
+                Button { engine.equal() } label: {
+                    Text("About equal")
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .background(.regularMaterial, in: Capsule())
+                        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
                 Spacer()
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
 
-            // Bottom card — swipeable
-            swipeCard(item: bottomItem, versus: topItem)
-                .padding(.horizontal)
-                .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in secondaryAction(for: bottomItem) })
+            // Bottom card — swipeable: right = bottom wins, left = top wins
+            swipeCard(
+                item: bottomItem, versus: topItem,
+                dragOffset: $dragOffset,
+                exitOffset: $exitOffset,
+                isExiting: $isExiting
+            )
+            .padding(.horizontal)
+            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in editingItem = bottomItem })
 
             // Swipe direction hints
             HStack {
@@ -225,62 +240,56 @@ struct PairwiseView: View {
             .padding(.horizontal, 28)
             .padding(.top, 8)
 
-            // Equal button
-            Button { engine.equal() } label: {
-                Text("About equal")
-                    .font(.subheadline.weight(.medium))
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 11)
-                    .background(.regularMaterial, in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 8)
-
             Spacer(minLength: 20)
         }
     }
 
-    // MARK: - Swipe Card (bottom)
+    // MARK: - Swipe Card
 
-    private func swipeCard(item: ReminderItem, versus other: ReminderItem) -> some View {
-        let normalized = min(max(dragOffset.width / swipeThreshold, -1.0), 1.0)
+    private func swipeCard(
+        item: ReminderItem,
+        versus other: ReminderItem,
+        dragOffset: Binding<CGSize>,
+        exitOffset: Binding<CGFloat>,
+        isExiting: Binding<Bool>
+    ) -> some View {
+        let normalized = min(max(dragOffset.wrappedValue.width / swipeThreshold, -1.0), 1.0)
 
         return PairwiseCardBody(item: item)
             .overlay(swipeOverlay(normalized: normalized))
-            .rotationEffect(.degrees(Double(normalized) * 6))
-            .scaleEffect(1.0 - abs(normalized) * 0.06)
-            .offset(x: dragOffset.width * 0.5 + exitOffset)
-            .opacity(isExiting ? 0 : 1)
+            .rotationEffect(.degrees(Double(normalized) * 5))
+            .scaleEffect(1.0 - abs(normalized) * 0.04)
+            .offset(x: dragOffset.wrappedValue.width * 0.5 + exitOffset.wrappedValue)
+            .opacity(isExiting.wrappedValue ? 0 : 1)
             .gesture(
                 DragGesture(minimumDistance: 10)
-                    .onChanged { dragOffset = $0.translation }
+                    .onChanged { dragOffset.wrappedValue = $0.translation }
                     .onEnded { value in
                         let dx = value.translation.width
                         if dx > swipeThreshold {
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                                exitOffset = 900
-                                isExiting = true
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                exitOffset.wrappedValue = 900
+                                isExiting.wrappedValue = true
                             }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                                 engine.choose(winner: item)
                             }
                         } else if dx < -swipeThreshold {
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                                exitOffset = -900
-                                isExiting = true
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                exitOffset.wrappedValue = -900
+                                isExiting.wrappedValue = true
                             }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                                 engine.choose(winner: other)
                             }
                         } else {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                dragOffset = .zero
+                                dragOffset.wrappedValue = .zero
                             }
                         }
                     }
             )
-            .onTapGesture { primaryAction(for: item) }
+            .onTapGesture { engine.choose(winner: item) }
     }
 
     @ViewBuilder
@@ -289,11 +298,11 @@ struct PairwiseView: View {
         if magnitude > 0.12 {
             let pickingThis = normalized > 0
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill((pickingThis ? Color.green : Color.blue).opacity(magnitude * 0.3))
+                .fill((pickingThis ? Color.green : Color.blue).opacity(magnitude * 0.25))
                 .overlay(
                     VStack(spacing: 6) {
                         Image(systemName: pickingThis ? "hand.thumbsup.fill" : "arrow.up")
-                            .font(.system(size: 36, weight: .bold))
+                            .font(.system(size: 32, weight: .bold))
                             .foregroundStyle(pickingThis ? .green : .blue)
                         Text(pickingThis ? "This one" : "Top one")
                             .font(.caption.bold())
@@ -343,8 +352,8 @@ private struct PairwiseCardBody: View {
         .frame(maxWidth: .infinity, minHeight: 170)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.1), radius: 16, y: 4)
+                .fill(Color(.secondarySystemBackground))
+                .shadow(color: .black.opacity(0.08), radius: 12, y: 3)
         )
     }
 }
